@@ -186,10 +186,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 resizedIcon.resizingMode = .stretch
                 imageView.imageScaling = .scaleNone
                 
-                // Make clickable
-                let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(iconClicked(_:)))
-                imageView.addGestureRecognizer(clickGesture)
-                
                 // Store the app reference for click handling
                 imageView.tag = Int(app.processIdentifier)
                 
@@ -236,15 +232,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.orderFront(nil)
     }
     
-    @objc private func iconClicked(_ gesture: NSClickGestureRecognizer) {
-        if let imageView = gesture.view as? NSImageView {
-            let pid = pid_t(imageView.tag)
-            if let app = NSRunningApplication(processIdentifier: pid) {
-                _ = app.activate()  // Use simple activate() and capture return value
-            }
-        }
-    }
-    
     deinit {
         if let observer = appearanceObserver as? NSKeyValueObservation {
             observer.invalidate()
@@ -255,4 +242,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 // Add this class at the top level
 class ClickableImageView: NSImageView {
     override var acceptsFirstResponder: Bool { return true }
+    
+    override func mouseDown(with event: NSEvent) {
+        print("Mouse down received")  // Debug print
+        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
+            print("Found app: \(app.localizedName ?? "unknown")")  // Debug print
+            _ = app.activate(options: [.activateIgnoringOtherApps])
+        }
+    }
 }
