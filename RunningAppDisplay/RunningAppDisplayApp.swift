@@ -91,22 +91,39 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         let iconSize = NSSize(width: 36, height: 36)
         let spacing: CGFloat = 8
-        let padding: CGFloat = 8  // Consistent padding value
+        let padding: CGFloat = 8
         
-        // Calculate total width needed (including both left and right padding)
+        // Calculate total width needed
         let totalWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (padding * 2)
+        
+        // Create background view
+        let backgroundView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: 36))
+        backgroundView.wantsLayer = true
+        backgroundView.layer?.cornerRadius = 8
+        
+        // Set background color based on appearance - more opaque, menu bar style
+        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if isDarkMode {
+            backgroundView.layer?.backgroundColor = NSColor(white: 0.2, alpha: 0.95).cgColor
+        } else {
+            backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.95).cgColor
+        }
         
         let stackView = NSStackView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: 36))
         stackView.orientation = .horizontal
         stackView.spacing = spacing
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)  // Restored right padding
+        stackView.edgeInsets = NSEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)
         
-        // Update window size and position with consistent padding
+        // Update window size and position
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let xPosition = screen.frame.maxX - totalWidth - padding
         let yPosition: CGFloat = screen.frame.minY + padding
         
         runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: 36), display: true)
+        
+        // Add background and stack view to window
+        backgroundView.addSubview(stackView)
+        runningAppsWindow.contentView = backgroundView
         
         for app in runningApps {
             if let appIcon = app.icon {
@@ -121,7 +138,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     filter.setValue(ciImage, forKey: kCIInputImageKey)
                     filter.setValue(0.0, forKey: kCIInputSaturationKey)
                     
-                    let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                     if isDarkMode {
                         filter.setValue(1.4, forKey: kCIInputContrastKey)
                         filter.setValue(0.2, forKey: kCIInputBrightnessKey)
@@ -155,7 +171,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             }
         }
         
-        runningAppsWindow.contentView = stackView
         runningAppsWindow.orderFront(nil)
     }
 }
