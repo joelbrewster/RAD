@@ -137,11 +137,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         backgroundView.layer?.borderWidth = 1
         
-        // Add subtle border like macOS Dock (the real one)
-        containerView.wantsLayer = true
-        containerView.layer?.borderWidth = 0.5
-        containerView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.1).cgColor  // Even more subtle, like the real Dock
-        
         // Create stack view
         let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
                                                 width: contentWidth - (horizontalPadding * 2), 
@@ -340,6 +335,16 @@ class ClickableImageView: NSImageView {
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
             popover?.close()
             _ = app.activate(options: [.activateIgnoringOtherApps])
+        }
+    }
+    
+    override func rightMouseDown(with event: NSEvent) {
+        let pid = pid_t(self.tag)
+        kill(pid, SIGTERM)  // Try graceful termination first
+        
+        // If app doesn't quit within 2 seconds, force quit
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            kill(pid, SIGKILL)
         }
     }
 }
