@@ -75,7 +75,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     func updateRunningApps() {
         let workspace = NSWorkspace.shared
         var runningApps = workspace.runningApplications.filter { 
-            $0.activationPolicy == .regular 
+            $0.activationPolicy == .regular && 
+            $0.bundleIdentifier != Bundle.main.bundleIdentifier  // Filter out RAD app
         }
         
         // Sort apps based on recent usage
