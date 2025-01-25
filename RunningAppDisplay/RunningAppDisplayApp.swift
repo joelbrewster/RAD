@@ -261,12 +261,57 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 
 // Add this class at the top level
 class ClickableImageView: NSImageView {
+    private var popover: NSPopover?
+    
     override var acceptsFirstResponder: Bool { return true }
     
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
+        
+        // Create and configure popover
+        let popover = NSPopover()
+        popover.behavior = .transient
+        
+        // Create label for popover
+        let label = NSTextField(labelWithString: app.localizedName ?? "Unknown")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create content view
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        contentView.addSubview(label)
+        
+        // Center label
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+        
+        popover.contentViewController = NSViewController()
+        popover.contentViewController?.view = contentView
+        
+        // Show popover
+        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
+        self.popover = popover
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        popover?.close()
+        popover = nil
+    }
+    
     override func mouseDown(with event: NSEvent) {
-        print("Mouse down received")  // Debug print
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
-            print("Found app: \(app.localizedName ?? "unknown")")  // Debug print
             _ = app.activate(options: [.activateIgnoringOtherApps])
         }
     }
