@@ -108,6 +108,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let backgroundView = NSView(frame: NSRect(x: shadowPadding, y: shadowPadding, 
                                                 width: contentWidth, height: contentHeight))
         backgroundView.wantsLayer = true
+        
+        // Create a custom corner mask that ONLY rounds top-left corner
+        let maskedCorners: CACornerMask = [.layerMinXMaxYCorner]  // Only top-left corner
+        backgroundView.layer?.maskedCorners = maskedCorners
         backgroundView.layer?.cornerRadius = 8
         
         // Set background color based on appearance
@@ -132,10 +136,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         stackView.orientation = .horizontal
         stackView.spacing = spacing
         
-        // Update window size and position - adjusted to account for shadow padding
+        // Position window - SIMPLE, BOTTOM RIGHT, FLUSH
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let xPosition = screen.frame.maxX - totalWidth - horizontalPadding + shadowPadding
-        let yPosition: CGFloat = screen.frame.minY + horizontalPadding - shadowPadding  // Adjusted to account for shadow space
+        let shadowOffset: CGFloat = 15  // Increased to 15 to ensure flush alignment
+        let xPosition = screen.visibleFrame.maxX - totalWidth + shadowOffset  // Push right
+        let yPosition = screen.visibleFrame.minY - shadowOffset  // Push down more
         
         runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         
