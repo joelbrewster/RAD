@@ -322,7 +322,7 @@ class ClickableImageView: NSImageView {
         lastMouseMovement = Date()
         
         tooltipTimer?.invalidate()
-        tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+        tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
             self?.showTooltipIfNeeded()
         }
     }
