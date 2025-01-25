@@ -91,17 +91,19 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         let iconSize = NSSize(width: 36, height: 36)
         let spacing: CGFloat = 8
-        let padding: CGFloat = 8
+        let horizontalPadding: CGFloat = 8
+        let verticalPadding: CGFloat = 12  // Increased vertical padding
         
         // Calculate total width needed
-        let totalWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (padding * 2)
+        let totalWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
+        let totalHeight: CGFloat = iconSize.height + (verticalPadding * 2)  // Height with vertical padding
         
-        // Create background view
-        let backgroundView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: 36))
+        // Create background view with increased height
+        let backgroundView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
         backgroundView.wantsLayer = true
         backgroundView.layer?.cornerRadius = 8
         
-        // Set background color based on appearance - more opaque, menu bar style
+        // Set background color based on appearance
         let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         if isDarkMode {
             backgroundView.layer?.backgroundColor = NSColor(white: 0.2, alpha: 0.95).cgColor
@@ -109,17 +111,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.95).cgColor
         }
         
-        let stackView = NSStackView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: 36))
+        // Center stack view vertically in the taller background
+        let stackView = NSStackView(frame: NSRect(x: 0, y: verticalPadding, width: totalWidth, height: iconSize.height))
         stackView.orientation = .horizontal
         stackView.spacing = spacing
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)
+        stackView.edgeInsets = NSEdgeInsets(top: 0, left: horizontalPadding, bottom: 0, right: horizontalPadding)
         
         // Update window size and position
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let xPosition = screen.frame.maxX - totalWidth - padding
-        let yPosition: CGFloat = screen.frame.minY + padding
+        let xPosition = screen.frame.maxX - totalWidth - horizontalPadding
+        let yPosition: CGFloat = screen.frame.minY + horizontalPadding
         
-        runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: 36), display: true)
+        runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         
         // Add background and stack view to window
         backgroundView.addSubview(stackView)
