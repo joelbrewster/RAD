@@ -84,7 +84,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let spacing: CGFloat = 8
         let horizontalPadding: CGFloat = 8
         let verticalPadding: CGFloat = 12
-        let shadowPadding: CGFloat = 20  // Extra space for shadow
+        let shadowPadding: CGFloat = 15  // Slightly reduced shadow space
         
         // Calculate total width and height including shadow space
         let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
@@ -109,11 +109,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.95).cgColor
         }
         
-        // Add shadow
+        // Add shadow with more subtle menubar-like appearance
         backgroundView.layer?.shadowColor = NSColor.black.cgColor
-        backgroundView.layer?.shadowOpacity = 0.3
+        backgroundView.layer?.shadowOpacity = 0.15  // Reduced opacity
         backgroundView.layer?.shadowOffset = NSSize(width: 0, height: 0)
-        backgroundView.layer?.shadowRadius = 15
+        backgroundView.layer?.shadowRadius = 10  // Slightly reduced radius
         backgroundView.layer?.masksToBounds = false
         
         // Create stack view
