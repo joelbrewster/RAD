@@ -294,12 +294,15 @@ class ClickableImageView: NSImageView {
         
         let popover = NSPopover()
         popover.behavior = .semitransient
-        popover.animates = false
+        popover.animates = true
         
         let label = NSTextField(labelWithString: app.localizedName ?? "Unknown")
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.alignment = .center
+        label.sizeToFit()
         
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let padding: CGFloat = 16
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.width + padding, height: 30))
         contentView.addSubview(label)
         
         NSLayoutConstraint.activate([
