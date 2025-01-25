@@ -43,11 +43,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             defer: false
         )
         
+        // Update window setup
         runningAppsWindow.level = .statusBar
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
-        runningAppsWindow.ignoresMouseEvents = true
+        runningAppsWindow.ignoresMouseEvents = false  // This is important
+        runningAppsWindow.acceptsMouseMovedEvents = true  // This too
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient]
         
         // Initialize with current running apps
@@ -80,11 +82,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 36, height: 36)
+        let iconSize = NSSize(width: 28, height: 28)  // Slightly smaller icons
         let spacing: CGFloat = 8
         let horizontalPadding: CGFloat = 8
-        let verticalPadding: CGFloat = 12
-        let shadowPadding: CGFloat = 15  // Slightly reduced shadow space
+        let verticalPadding: CGFloat = 4  // Reduced from 12 to 4
+        let shadowPadding: CGFloat = 15
         
         // Calculate total width and height including shadow space
         let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
@@ -141,9 +143,48 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                imageView.imageScaling = .scaleProportionallyDown
+                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
                 imageView.wantsLayer = true
+                
+                // Debug print original size
+                print("App: \(app.localizedName ?? "unknown"), Original size: \(appIcon.size)")
+                
+                // Force exact size with strict constraints
+                let resizedIcon = NSImage(size: iconSize)
+                resizedIcon.lockFocus()
+                let drawRect = NSRect(origin: .zero, size: iconSize)
+                
+                // Scale down the source rect if it's larger
+                let sourceRect: NSRect
+                if appIcon.size.width > iconSize.width || appIcon.size.height > iconSize.height {
+                    let scale = min(iconSize.width / appIcon.size.width, iconSize.height / appIcon.size.height)
+                    let scaledSize = NSSize(width: appIcon.size.width * scale, height: appIcon.size.height * scale)
+                    sourceRect = NSRect(origin: .zero, size: scaledSize)
+                } else {
+                    sourceRect = NSRect(origin: .zero, size: appIcon.size)
+                }
+                
+                appIcon.draw(in: drawRect, from: sourceRect, operation: .sourceOver, fraction: 1.0)
+                resizedIcon.unlockFocus()
+                
+                // Debug print final size
+                print("Final image size: \(resizedIcon.size)")
+                
+                imageView.image = resizedIcon
+                imageView.layer?.contentsGravity = .resize  // Force resize
+                imageView.layer?.bounds = CGRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height)
+                
+                // Disable all automatic scaling
+                resizedIcon.isTemplate = false
+                resizedIcon.resizingMode = .stretch
+                imageView.imageScaling = .scaleNone
+                
+                // Make clickable
+                let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(iconClicked(_:)))
+                imageView.addGestureRecognizer(clickGesture)
+                
+                // Store the app reference for click handling
+                imageView.tag = Int(app.processIdentifier)
                 
                 // Apply grayscale filter with adaptive brightness
                 if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil),
@@ -187,4 +228,20 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         runningAppsWindow.orderFront(nil)
     }
+    
+    @objc private func iconClicked(_ gesture: NSClickGestureRecognizer) {
+        if let imageView = gesture.view as? NSImageView {
+            print("Icon clicked! Tag: \(imageView.tag)")  // Debug print
+            if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
+                print("Found app, attempting to activate")  // Debug print
+                app.activate(options: .activateIgnoringOtherApps)  // Try with explicit options
+                print("App activated: \(app.localizedName ?? "unknown")")  // Debug print
+            }
+        }
+    }
+}
+
+// Add this class at the top level
+class ClickableImageView: NSImageView {
+    override var acceptsFirstResponder: Bool { return true }
 }
