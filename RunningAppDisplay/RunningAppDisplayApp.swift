@@ -124,10 +124,23 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Add shadow with more subtle menubar-like appearance
         backgroundView.layer?.shadowColor = NSColor.black.cgColor
-        backgroundView.layer?.shadowOpacity = 0.15  // Reduced opacity
-        backgroundView.layer?.shadowOffset = NSSize(width: 0, height: 0)
-        backgroundView.layer?.shadowRadius = 10  // Slightly reduced radius
+        backgroundView.layer?.shadowOpacity = 0.4
+        backgroundView.layer?.shadowOffset = NSSize(width: 2, height: -8)
+        backgroundView.layer?.shadowRadius = 8
         backgroundView.layer?.masksToBounds = false
+        
+        // Add the actual Dock-style border with correct colors per mode
+        if isDarkMode {
+            backgroundView.layer?.borderColor = NSColor(red: 65/255, green: 65/255, blue: 65/255, alpha: 1.0).cgColor  // #414141
+        } else {
+            backgroundView.layer?.borderColor = NSColor(red: 229/255, green: 229/255, blue: 229/255, alpha: 1.0).cgColor  // #e5e5e5
+        }
+        backgroundView.layer?.borderWidth = 1
+        
+        // Add subtle border like macOS Dock (the real one)
+        containerView.wantsLayer = true
+        containerView.layer?.borderWidth = 0.5
+        containerView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.1).cgColor  // Even more subtle, like the real Dock
         
         // Create stack view
         let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
@@ -138,9 +151,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Position window - SIMPLE, BOTTOM RIGHT, FLUSH
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let shadowOffset: CGFloat = 15  // Increased to 15 to ensure flush alignment
+        let shadowOffset: CGFloat = 15  // Back to a simple, single offset
         let xPosition = screen.visibleFrame.maxX - totalWidth + shadowOffset  // Push right
-        let yPosition = screen.visibleFrame.minY - shadowOffset  // Push down more
+        let yPosition = screen.visibleFrame.minY - shadowOffset  // Push down
         
         runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         
@@ -150,7 +163,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.contentView = containerView
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
-        runningAppsWindow.hasShadow = false
+        // runningApps.hasShadow = false
         
         // Add app icons
         for app in runningApps {
