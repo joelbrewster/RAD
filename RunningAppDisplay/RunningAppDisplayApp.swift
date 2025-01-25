@@ -12,6 +12,7 @@ import SwiftData
 class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var runningAppsWindow: NSWindow!
     var workspaceNotificationObserver: Any?
+    var appearanceObserver: Any?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
     
     static func main() {
@@ -57,6 +58,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             updateRecentApps(frontApp)
         }
         updateRunningApps()
+        
+        // Add appearance change observer
+        appearanceObserver = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            self?.updateRunningApps()  // Refresh UI when appearance changes
+        }
     }
     
     func updateRecentApps(_ bundleID: String) {
@@ -171,7 +177,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 print("Final image size: \(resizedIcon.size)")
                 
                 imageView.image = resizedIcon
-                imageView.layer?.contentsGravity = .resize  // Force resize
+                imageView.wantsLayer = true
+                imageView.layer?.contentsGravity = .resize
                 imageView.layer?.bounds = CGRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height)
                 
                 // Disable all automatic scaling
@@ -231,12 +238,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     
     @objc private func iconClicked(_ gesture: NSClickGestureRecognizer) {
         if let imageView = gesture.view as? NSImageView {
-            print("Icon clicked! Tag: \(imageView.tag)")  // Debug print
-            if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
-                print("Found app, attempting to activate")  // Debug print
-                app.activate(options: .activateIgnoringOtherApps)  // Try with explicit options
-                print("App activated: \(app.localizedName ?? "unknown")")  // Debug print
+            let pid = pid_t(imageView.tag)
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                _ = app.activate()  // Use simple activate() and capture return value
             }
+        }
+    }
+    
+    deinit {
+        if let observer = appearanceObserver as? NSKeyValueObservation {
+            observer.invalidate()
         }
     }
 }
