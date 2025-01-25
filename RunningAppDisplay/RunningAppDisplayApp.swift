@@ -91,17 +91,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         let iconSize = NSSize(width: 36, height: 36)
         let spacing: CGFloat = 8
-        let padding: CGFloat = 8
+        let padding: CGFloat = 8  // Consistent padding value
         
-        // Calculate total width needed
+        // Calculate total width needed (including both left and right padding)
         let totalWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (padding * 2)
         
         let stackView = NSStackView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: 36))
         stackView.orientation = .horizontal
         stackView.spacing = spacing
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)
+        stackView.edgeInsets = NSEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)  // Restored right padding
         
-        // Update window size and position
+        // Update window size and position with consistent padding
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let xPosition = screen.frame.maxX - totalWidth - padding
         let yPosition: CGFloat = screen.frame.minY + padding
