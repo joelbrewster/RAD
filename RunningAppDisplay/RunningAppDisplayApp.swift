@@ -50,17 +50,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.ignoresMouseEvents = true
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient]
         
-        // Calculate position for bottom right
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        let padding: CGFloat = 8  // Reduced padding to be closer to bottom
-        let runningAppsWidth: CGFloat = 300
-        let xPosition = screen.frame.maxX - runningAppsWidth - padding
-        let yPosition: CGFloat = screen.frame.minY + padding
-        
-        runningAppsWindow.setFrameOrigin(NSPoint(x: xPosition, y: yPosition))
-        
         // Initialize with current running apps
-        if let frontApp = workspace.frontmostApplication?.bundleIdentifier {
+        if let frontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
             updateRecentApps(frontApp)
         }
         updateRunningApps()
@@ -92,14 +83,21 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let iconSize = NSSize(width: 36, height: 36)
         let spacing: CGFloat = 8
         let horizontalPadding: CGFloat = 8
-        let verticalPadding: CGFloat = 12  // Increased vertical padding
+        let verticalPadding: CGFloat = 12
+        let shadowPadding: CGFloat = 20  // Extra space for shadow
         
-        // Calculate total width needed
-        let totalWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
-        let totalHeight: CGFloat = iconSize.height + (verticalPadding * 2)  // Height with vertical padding
+        // Calculate total width and height including shadow space
+        let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
+        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2)
+        let totalWidth = contentWidth + (shadowPadding * 2)
+        let totalHeight = contentHeight + (shadowPadding * 2)
         
-        // Create background view with increased height
-        let backgroundView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
+        // Create container view with extra space for shadow
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
+        
+        // Create background view positioned to allow shadow space
+        let backgroundView = NSView(frame: NSRect(x: shadowPadding, y: shadowPadding, 
+                                                width: contentWidth, height: contentHeight))
         backgroundView.wantsLayer = true
         backgroundView.layer?.cornerRadius = 8
         
@@ -111,23 +109,36 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.95).cgColor
         }
         
-        // Center stack view vertically in the taller background
-        let stackView = NSStackView(frame: NSRect(x: 0, y: verticalPadding, width: totalWidth, height: iconSize.height))
+        // Add shadow
+        backgroundView.layer?.shadowColor = NSColor.black.cgColor
+        backgroundView.layer?.shadowOpacity = 0.3
+        backgroundView.layer?.shadowOffset = NSSize(width: 0, height: 0)
+        backgroundView.layer?.shadowRadius = 15
+        backgroundView.layer?.masksToBounds = false
+        
+        // Create stack view
+        let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
+                                                width: contentWidth - (horizontalPadding * 2), 
+                                                height: iconSize.height))
         stackView.orientation = .horizontal
         stackView.spacing = spacing
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: horizontalPadding, bottom: 0, right: horizontalPadding)
         
-        // Update window size and position
+        // Update window size and position - adjusted to account for shadow padding
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let xPosition = screen.frame.maxX - totalWidth - horizontalPadding
-        let yPosition: CGFloat = screen.frame.minY + horizontalPadding
+        let xPosition = screen.frame.maxX - totalWidth - horizontalPadding + shadowPadding
+        let yPosition: CGFloat = screen.frame.minY + horizontalPadding - shadowPadding  // Adjusted to account for shadow space
         
         runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         
-        // Add background and stack view to window
+        // Set up view hierarchy
         backgroundView.addSubview(stackView)
-        runningAppsWindow.contentView = backgroundView
+        containerView.addSubview(backgroundView)
+        runningAppsWindow.contentView = containerView
+        runningAppsWindow.backgroundColor = .clear
+        runningAppsWindow.isOpaque = false
+        runningAppsWindow.hasShadow = false
         
+        // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
                 let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
