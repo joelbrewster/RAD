@@ -1,6 +1,6 @@
 # RunningAppDisplay
 
-RAD - A minimalist macOS utility that displays a dock-like bar of your running applications in the bottom-right corner of your screen. Built with Swift and native macOS frameworks.
+  Built with Swift and native macOS frameworks.
 
 ## Features
 
