@@ -35,9 +35,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 }
         }
         
-        // Create floating window for running apps
+        // Create floating window for running apps with larger height
         runningAppsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 24),
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 36), // Increased height for larger icons
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -52,10 +52,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Calculate position for bottom right
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let padding: CGFloat = 16
+        let padding: CGFloat = 8  // Reduced padding to be closer to bottom
         let runningAppsWidth: CGFloat = 300
         let xPosition = screen.frame.maxX - runningAppsWidth - padding
-        let yPosition: CGFloat = screen.frame.minY + padding + 24
+        let yPosition: CGFloat = screen.frame.minY + padding
         
         runningAppsWindow.setFrameOrigin(NSPoint(x: xPosition, y: yPosition))
         
@@ -89,11 +89,24 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let stackView = NSStackView(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        stackView.orientation = .horizontal
-        stackView.spacing = 8
+        let iconSize = NSSize(width: 36, height: 36)
+        let spacing: CGFloat = 8
+        let padding: CGFloat = 8
         
-        let iconSize = NSSize(width: 18, height: 18)  // Consistent size for all icons
+        // Calculate total width needed
+        let totalWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (padding * 2)
+        
+        let stackView = NSStackView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: 36))
+        stackView.orientation = .horizontal
+        stackView.spacing = spacing
+        stackView.edgeInsets = NSEdgeInsets(top: 0, left: padding, bottom: 0, right: padding)
+        
+        // Update window size and position
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let xPosition = screen.frame.maxX - totalWidth - padding
+        let yPosition: CGFloat = screen.frame.minY + padding
+        
+        runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: 36), display: true)
         
         for app in runningApps {
             if let appIcon = app.icon {
