@@ -38,7 +38,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create floating window for running apps with larger height
         runningAppsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 36), // Increased height for larger icons
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 40),  // Increased height to accommodate larger icons
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -89,7 +89,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 28, height: 28)  // Slightly smaller icons
+        let iconSize = NSSize(width: 32, height: 32)  // Standard macOS icon size
         let spacing: CGFloat = 8
         let horizontalPadding: CGFloat = 8
         let verticalPadding: CGFloat = 4  // Reduced from 12 to 4
@@ -150,42 +150,43 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
+                print("App: \(app.localizedName ?? "unknown")")
+                print("  Original size: \(appIcon.size)")
+                print("  Representations: \(appIcon.representations.map { "\($0.size)" }.joined(separator: ", "))")
+                print("  Has template: \(appIcon.isTemplate)")
+                
                 let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
                 imageView.wantsLayer = true
                 
-                // Debug print original size
-                print("App: \(app.localizedName ?? "unknown"), Original size: \(appIcon.size)")
-                
-                // Force exact size with strict constraints
+                // Create new image with exact size
                 let resizedIcon = NSImage(size: iconSize)
                 resizedIcon.lockFocus()
-                let drawRect = NSRect(origin: .zero, size: iconSize)
                 
-                // Scale down the source rect if it's larger
-                let sourceRect: NSRect
-                if appIcon.size.width > iconSize.width || appIcon.size.height > iconSize.height {
-                    let scale = min(iconSize.width / appIcon.size.width, iconSize.height / appIcon.size.height)
-                    let scaledSize = NSSize(width: appIcon.size.width * scale, height: appIcon.size.height * scale)
-                    sourceRect = NSRect(origin: .zero, size: scaledSize)
-                } else {
-                    sourceRect = NSRect(origin: .zero, size: appIcon.size)
-                }
+                // Clear the background first
+                NSColor.clear.set()
+                NSRect(origin: .zero, size: iconSize).fill()
                 
-                appIcon.draw(in: drawRect, from: sourceRect, operation: .sourceOver, fraction: 1.0)
+                // Calculate scaling to fit exactly
+                let scale = min(iconSize.width / appIcon.size.width, iconSize.height / appIcon.size.height)
+                let scaledSize = NSSize(
+                    width: appIcon.size.width * scale,
+                    height: appIcon.size.height * scale
+                )
+                
+                // Center the icon
+                let x = (iconSize.width - scaledSize.width) / 2
+                let y = (iconSize.height - scaledSize.height) / 2
+                
+                // Draw scaled and centered
+                let drawRect = NSRect(x: x, y: y, width: scaledSize.width, height: scaledSize.height)
+                appIcon.draw(in: drawRect, from: NSRect(origin: .zero, size: appIcon.size), 
+                            operation: .sourceOver, fraction: 1.0)
+                
                 resizedIcon.unlockFocus()
                 
-                // Debug print final size
-                print("Final image size: \(resizedIcon.size)")
-                
-                imageView.image = resizedIcon
-                imageView.wantsLayer = true
-                imageView.layer?.contentsGravity = .resize
-                imageView.layer?.bounds = CGRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height)
-                
-                // Disable all automatic scaling
-                resizedIcon.isTemplate = false
-                resizedIcon.resizingMode = .stretch
+                // Ensure no further scaling
                 imageView.imageScaling = .scaleNone
+                imageView.image = resizedIcon
                 
                 // Store the app reference for click handling
                 imageView.tag = Int(app.processIdentifier)
