@@ -262,6 +262,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 // Add this class at the top level
 class ClickableImageView: NSImageView {
     private var popover: NSPopover?
+    private var isMouseInside = false
     
     override var acceptsFirstResponder: Bool { return true }
     
@@ -269,7 +270,7 @@ class ClickableImageView: NSImageView {
         super.updateTrackingAreas()
         let trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
+            options: [.mouseEnteredAndExited, .activeAlways, .enabledDuringMouseDrag],
             owner: self,
             userInfo: nil
         )
@@ -277,41 +278,46 @@ class ClickableImageView: NSImageView {
     }
     
     override func mouseEntered(with event: NSEvent) {
-        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
+        isMouseInside = true
         
-        // Create and configure popover
-        let popover = NSPopover()
-        popover.behavior = .transient
-        
-        // Create label for popover
-        let label = NSTextField(labelWithString: app.localizedName ?? "Unknown")
-        label.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Create content view
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
-        contentView.addSubview(label)
-        
-        // Center label
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
-        ])
-        
-        popover.contentViewController = NSViewController()
-        popover.contentViewController?.view = contentView
-        
-        // Show popover
-        popover.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
-        self.popover = popover
+        // Slight delay to avoid showing tooltip on quick movements
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self = self,
+                  self.isMouseInside,
+                  let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
+            
+            let popover = NSPopover()
+            popover.behavior = .semitransient // Less aggressive than transient
+            popover.animates = false // Faster appearance
+            
+            let label = NSTextField(labelWithString: app.localizedName ?? "Unknown")
+            label.translatesAutoresizingMaskIntoConstraints = false
+            
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+            contentView.addSubview(label)
+            
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+            ])
+            
+            popover.contentViewController = NSViewController()
+            popover.contentViewController?.view = contentView
+            
+            popover.show(relativeTo: self.bounds, of: self, preferredEdge: .maxY)
+            self.popover = popover
+        }
     }
     
     override func mouseExited(with event: NSEvent) {
+        isMouseInside = false
         popover?.close()
         popover = nil
     }
     
     override func mouseDown(with event: NSEvent) {
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
+            popover?.close() // Ensure popover is closed on click
             _ = app.activate(options: [.activateIgnoringOtherApps])
         }
     }
