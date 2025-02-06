@@ -38,7 +38,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create floating window for running apps with larger height
         runningAppsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 32, height: 32),  // Increased height to accommodate larger icons
+            contentRect: NSRect(x: 0, y: 0, width: 0, height: 0),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -49,8 +49,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
-        runningAppsWindow.ignoresMouseEvents = false  // This is important
-        runningAppsWindow.acceptsMouseMovedEvents = true  // This too
+        runningAppsWindow.ignoresMouseEvents = false
+        runningAppsWindow.acceptsMouseMovedEvents = true
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient]
         
         // Initialize with current running apps
@@ -89,10 +89,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 40, height: 40)  // Standard macOS icon size
+        let iconSize = NSSize(width: 33, height: 33)  // Standard macOS icon size
         let spacing: CGFloat = 8
         let horizontalPadding: CGFloat = 8
-        let verticalPadding: CGFloat = 4  // Reduced from 12 to 4
+        let verticalPadding: CGFloat = 4
         let shadowPadding: CGFloat = 15
         
         // Calculate total width and height including shadow space
@@ -163,39 +163,51 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                // First create the outer container with fixed size
-                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                containerView.wantsLayer = true
-//                containerView.layer?.borderWidth = 1
-//                containerView.layer?.borderColor = NSColor.red.cgColor
-                
-                // Create image view that will be constrained inside container
-                let imageView = ClickableImageView()
-                imageView.wantsLayer = true
-                imageView.layer?.masksToBounds = true
-                imageView.translatesAutoresizingMaskIntoConstraints = false
-                
-                // Add to container
-                containerView.addSubview(imageView)
-                
-                // Constrain image view to container edges
-                NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                    imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                    imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
-                    imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-                ])
-                
-                // Set the image
+                // Force icon size first
                 appIcon.size = iconSize
-                imageView.image = appIcon
-                imageView.imageScaling = .scaleProportionallyDown
                 
-                // Add container to stack
-                stackView.addArrangedSubview(containerView)
-                
-                // Store the app reference for click handling
-                imageView.tag = Int(app.processIdentifier)
+                // Create CIImage from NSImage for filtering
+                if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    let ciImage = CIImage(cgImage: cgImage)
+                    
+                    // Apply grayscale filter
+                    if let filter = CIFilter(name: "CIColorControls") {
+                        filter.setValue(ciImage, forKey: kCIInputImageKey)
+                        filter.setValue(0.25, forKey: kCIInputSaturationKey) // 0 = grayscale, 1 = normal
+                        
+                        if let outputImage = filter.outputImage {
+                            let context = CIContext()
+                            if let cgOutput = context.createCGImage(outputImage, from: outputImage.extent) {
+                                let filteredIcon = NSImage(cgImage: cgOutput, size: iconSize)
+                                
+                                // Create container and image view with filtered icon
+                                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                                let imageView = ClickableImageView()
+                                imageView.image = filteredIcon
+                                imageView.wantsLayer = true
+                                imageView.layer?.masksToBounds = true
+                                imageView.translatesAutoresizingMaskIntoConstraints = false
+                                
+                                // Add to container
+                                containerView.addSubview(imageView)
+                                
+                                // Constrain image view to container edges
+                                NSLayoutConstraint.activate([
+                                    imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                                    imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                                    imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                                    imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+                                ])
+                                
+                                // Add container to stack
+                                stackView.addArrangedSubview(containerView)
+                                
+                                // Store the app reference for click handling
+                                imageView.tag = Int(app.processIdentifier)
+                            }
+                        }
+                    }
+                }
             }
         }
         
