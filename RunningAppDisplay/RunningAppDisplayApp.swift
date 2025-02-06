@@ -38,7 +38,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create floating window for running apps with larger height
         runningAppsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 40),  // Increased height to accommodate larger icons
+            contentRect: NSRect(x: 0, y: 0, width: 32, height: 32),  // Increased height to accommodate larger icons
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -89,7 +89,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 32, height: 32)  // Standard macOS icon size
+        let iconSize = NSSize(width: 40, height: 40)  // Standard macOS icon size
         let spacing: CGFloat = 8
         let horizontalPadding: CGFloat = 8
         let verticalPadding: CGFloat = 4  // Reduced from 12 to 4
@@ -163,84 +163,39 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                print("App: \(app.localizedName ?? "unknown")")
-                print("  Original size: \(appIcon.size)")
-                print("  Representations: \(appIcon.representations.map { "\($0.size)" }.joined(separator: ", "))")
-                print("  Has template: \(appIcon.isTemplate)")
+                // First create the outer container with fixed size
+                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                containerView.wantsLayer = true
+//                containerView.layer?.borderWidth = 1
+//                containerView.layer?.borderColor = NSColor.red.cgColor
                 
-                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                // Create image view that will be constrained inside container
+                let imageView = ClickableImageView()
                 imageView.wantsLayer = true
+                imageView.layer?.masksToBounds = true
+                imageView.translatesAutoresizingMaskIntoConstraints = false
                 
-                // Create new image with exact size
-                let resizedIcon = NSImage(size: iconSize)
-                resizedIcon.lockFocus()
+                // Add to container
+                containerView.addSubview(imageView)
                 
-                // Clear the background first
-                NSColor.clear.set()
-                NSRect(origin: .zero, size: iconSize).fill()
+                // Constrain image view to container edges
+                NSLayoutConstraint.activate([
+                    imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                    imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                    imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                    imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+                ])
                 
-                // Calculate scaling to fit exactly
-                let scale = min(iconSize.width / appIcon.size.width, iconSize.height / appIcon.size.height)
-                let scaledSize = NSSize(
-                    width: appIcon.size.width * scale,
-                    height: appIcon.size.height * scale
-                )
+                // Set the image
+                appIcon.size = iconSize
+                imageView.image = appIcon
+                imageView.imageScaling = .scaleProportionallyDown
                 
-                // Center the icon
-                let x = (iconSize.width - scaledSize.width) / 2
-                let y = (iconSize.height - scaledSize.height) / 2
-                
-                // Draw scaled and centered
-                let drawRect = NSRect(x: x, y: y, width: scaledSize.width, height: scaledSize.height)
-                appIcon.draw(in: drawRect, from: NSRect(origin: .zero, size: appIcon.size), 
-                            operation: .sourceOver, fraction: 1.0)
-                
-                resizedIcon.unlockFocus()
-                
-                // Ensure no further scaling
-                imageView.imageScaling = .scaleNone
-                imageView.image = resizedIcon
+                // Add container to stack
+                stackView.addArrangedSubview(containerView)
                 
                 // Store the app reference for click handling
                 imageView.tag = Int(app.processIdentifier)
-                
-                // Apply grayscale filter with adaptive brightness
-                if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil),
-                   let filter = CIFilter(name: "CIColorControls") {
-                    let ciImage = CIImage(cgImage: cgImage)
-                    filter.setValue(ciImage, forKey: kCIInputImageKey)
-                    filter.setValue(0.0, forKey: kCIInputSaturationKey)
-                    
-                    if isDarkMode {
-                        filter.setValue(1.4, forKey: kCIInputContrastKey)
-                        filter.setValue(0.2, forKey: kCIInputBrightnessKey)
-                    } else {
-                        filter.setValue(1.2, forKey: kCIInputContrastKey)
-                        filter.setValue(0.1, forKey: kCIInputBrightnessKey)
-                    }
-                    
-                    if let outputImage = filter.outputImage {
-                        let context = CIContext()
-                        if let resultCGImage = context.createCGImage(outputImage, from: outputImage.extent) {
-                            let resizedImage = NSImage(cgImage: resultCGImage, size: iconSize)
-                            imageView.image = resizedImage
-                        } else {
-                            let resizedIcon = NSImage(size: iconSize)
-                            resizedIcon.lockFocus()
-                            appIcon.draw(in: NSRect(origin: .zero, size: iconSize))
-                            resizedIcon.unlockFocus()
-                            imageView.image = resizedIcon
-                        }
-                    }
-                }
-                
-                // Add shadow
-                imageView.layer?.shadowColor = NSColor.black.withAlphaComponent(0.2).cgColor
-                imageView.layer?.shadowOffset = NSSize(width: 0, height: 0)
-                imageView.layer?.shadowOpacity = 1.0
-                imageView.layer?.shadowRadius = 1.0
-                
-                stackView.addArrangedSubview(imageView)
             }
         }
         
