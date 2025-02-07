@@ -89,11 +89,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 33, height: 33)  // Standard macOS icon size
-        let spacing: CGFloat = 8
-        let horizontalPadding: CGFloat = 8
+        let iconSize = NSSize(width: 33, height: 33)
+        let spacing: CGFloat = 8  // Space between icons
+        let horizontalPadding: CGFloat = 8  // Padding at edges
         let verticalPadding: CGFloat = 4
-        let shadowPadding: CGFloat = 15
+        let shadowPadding: CGFloat = 15  // Space for shadow effects
         
         // Calculate total width and height including shadow space
         let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
@@ -137,12 +137,14 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         backgroundView.layer?.borderWidth = 1
         
-        // Create stack view
+        // Create stack view with proper sizing and distribution
         let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
                                                 width: contentWidth - (horizontalPadding * 2), 
                                                 height: iconSize.height))
         stackView.orientation = .horizontal
         stackView.spacing = spacing
+        stackView.distribution = .equalSpacing  // Make items evenly spaced
+        stackView.alignment = .centerY  // Center items vertically
         
         // Position window - SIMPLE, BOTTOM RIGHT, FLUSH
         let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -173,37 +175,24 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     // Apply grayscale filter
                     if let filter = CIFilter(name: "CIColorControls") {
                         filter.setValue(ciImage, forKey: kCIInputImageKey)
-                        filter.setValue(0.25, forKey: kCIInputSaturationKey) // 0 = grayscale, 1 = normal
+                        filter.setValue(0.25, forKey: kCIInputSaturationKey)
                         
                         if let outputImage = filter.outputImage {
                             let context = CIContext()
                             if let cgOutput = context.createCGImage(outputImage, from: outputImage.extent) {
                                 let filteredIcon = NSImage(cgImage: cgOutput, size: iconSize)
                                 
-                                // Create container and image view with filtered icon
+                                // Create container and image view
                                 let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                                let imageView = ClickableImageView()
+                                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                                imageView.imageScaling = .scaleProportionallyDown
                                 imageView.image = filteredIcon
                                 imageView.wantsLayer = true
                                 imageView.layer?.masksToBounds = true
-                                imageView.translatesAutoresizingMaskIntoConstraints = false
-                                
-                                // Add to container
-                                containerView.addSubview(imageView)
-                                
-                                // Constrain image view to container edges
-                                NSLayoutConstraint.activate([
-                                    imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                                    imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                                    imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
-                                    imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-                                ])
-                                
-                                // Add container to stack
-                                stackView.addArrangedSubview(containerView)
-                                
-                                // Store the app reference for click handling
                                 imageView.tag = Int(app.processIdentifier)
+                                
+                                // Add to stack view directly
+                                stackView.addArrangedSubview(imageView)  // Don't need containerView anymore
                             }
                         }
                     }
@@ -306,12 +295,36 @@ class ClickableImageView: NSImageView {
     }
     
     override func rightMouseDown(with event: NSEvent) {
-        let pid = pid_t(self.tag)
-        kill(pid, SIGTERM)  // Try graceful termination first
+        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else {
+            print("⚠️ Could not find app with PID: \(self.tag)")
+            return 
+        }
+        
+        print("🎯 Attempting to quit: \(app.localizedName ?? "Unknown")")
+        print("   Bundle ID: \(app.bundleIdentifier ?? "none")")
+        print("   PID: \(app.processIdentifier)")
+        print("   Is Active: \(app.isActive)")
+        print("   Activation Policy: \(app.activationPolicy.rawValue)")
+        
+        // Try graceful quit first
+        let success = app.terminate()
+        print(success ? "✅ Quit request sent successfully" : "❌ Failed to send quit request")
         
         // If app doesn't quit within 2 seconds, force quit
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            kill(pid, SIGKILL)
+            if app.isTerminated == false {
+                print("⚡ App didn't quit")
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/kill")
+                process.arguments = ["-9", String(app.processIdentifier)]
+                
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                } catch {
+                    print("Failed to force quit: \(error)")
+                }
+            }
         }
     }
 }
