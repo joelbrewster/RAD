@@ -13,6 +13,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var runningAppsWindow: NSWindow!
     var workspaceNotificationObserver: Any?
     var appearanceObserver: Any?
+    var terminationObserver: Any?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
     
     static func main() {
@@ -34,6 +35,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                    let bundleID = app.bundleIdentifier {
                     self?.updateRecentApps(bundleID)
                 }
+        }
+        
+        terminationObserver = workspace.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: nil) { [weak self] notification in
+                self?.updateRunningApps()
         }
         
         // Create floating window for running apps with larger height
@@ -89,11 +97,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 33, height: 33)
-        let spacing: CGFloat = 8  // Space between icons
-        let horizontalPadding: CGFloat = 8  // Padding at edges
-        let verticalPadding: CGFloat = 4
-        let shadowPadding: CGFloat = 15  // Space for shadow effects
+        let iconSize = NSSize(width: 48, height: 48)  // Increased to 48px
+        let spacing: CGFloat = 12  // Increased spacing for larger icons
+        let horizontalPadding: CGFloat = 12
+        let verticalPadding: CGFloat = 8
+        let shadowPadding: CGFloat = 15
         
         // Calculate total width and height including shadow space
         let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
@@ -143,8 +151,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                                                 height: iconSize.height))
         stackView.orientation = .horizontal
         stackView.spacing = spacing
-        stackView.distribution = .equalSpacing  // Make items evenly spaced
-        stackView.alignment = .centerY  // Center items vertically
+        stackView.distribution = .fillEqually  // Changed to fillEqually
+        stackView.alignment = .centerY
+        stackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         
         // Position window - SIMPLE, BOTTOM RIGHT, FLUSH
         let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -165,14 +174,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                // Force icon size first
                 appIcon.size = iconSize
                 
-                // Create CIImage from NSImage for filtering
                 if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                     let ciImage = CIImage(cgImage: cgImage)
                     
-                    // Apply grayscale filter
                     if let filter = CIFilter(name: "CIColorControls") {
                         filter.setValue(ciImage, forKey: kCIInputImageKey)
                         filter.setValue(0.25, forKey: kCIInputSaturationKey)
@@ -182,17 +188,25 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                             if let cgOutput = context.createCGImage(outputImage, from: outputImage.extent) {
                                 let filteredIcon = NSImage(cgImage: cgOutput, size: iconSize)
                                 
-                                // Create container and image view
+                                // Create fixed-size container
                                 let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                                containerView.wantsLayer = true
+                                
+                                // Configure image view to fit within container
+                                let imageView = ClickableImageView(frame: containerView.bounds)
                                 imageView.imageScaling = .scaleProportionallyDown
                                 imageView.image = filteredIcon
                                 imageView.wantsLayer = true
                                 imageView.layer?.masksToBounds = true
                                 imageView.tag = Int(app.processIdentifier)
                                 
-                                // Add to stack view directly
-                                stackView.addArrangedSubview(imageView)  // Don't need containerView anymore
+                                // Center image in container
+                                containerView.addSubview(imageView)
+                                
+                                // Add fixed-width constraint to container
+                                containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
+                                
+                                stackView.addArrangedSubview(containerView)
                             }
                         }
                     }
@@ -206,6 +220,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     deinit {
         if let observer = appearanceObserver as? NSKeyValueObservation {
             observer.invalidate()
+        }
+        if let observer = workspaceNotificationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        if let observer = terminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
     }
 }
