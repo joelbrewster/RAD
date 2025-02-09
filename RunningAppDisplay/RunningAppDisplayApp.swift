@@ -117,33 +117,28 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                                                 width: contentWidth, height: contentHeight))
         backgroundView.wantsLayer = true
         
-        // Create a custom corner mask that ONLY rounds top-left corner
-        let maskedCorners: CACornerMask = [.layerMinXMaxYCorner]  // Only top-left corner
-        backgroundView.layer?.maskedCorners = maskedCorners
-        backgroundView.layer?.cornerRadius = 8
+        // Create visual effect view for blur
+        let blurView = NSVisualEffectView(frame: backgroundView.bounds)
+        blurView.blendingMode = .behindWindow
+        blurView.state = .active
+        blurView.material = .hudWindow // This matches the menubar blur
+        blurView.wantsLayer = true
         
-        // Set background color based on appearance
+        // Adjust corner radius to match system UI (typically 4-5px)
+        blurView.layer?.cornerRadius = 16
+        blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // Only top-left corner
+        
+        // Add blur view to background
+        backgroundView.addSubview(blurView)
+        
+        // Remove the previous background color setup and just add a subtle border
         let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         if isDarkMode {
-            backgroundView.layer?.backgroundColor = NSColor(white: 0.2, alpha: 0.8).cgColor
+            backgroundView.layer?.borderColor = NSColor(white: 1, alpha: 0.1).cgColor
         } else {
-            backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.8).cgColor
+            backgroundView.layer?.borderColor = NSColor(white: 0, alpha: 0.1).cgColor
         }
-        
-        // Add shadow with more subtle menubar-like appearance
-        backgroundView.layer?.shadowColor = NSColor.black.cgColor
-        backgroundView.layer?.shadowOpacity = 0.4
-        backgroundView.layer?.shadowOffset = NSSize(width: 2, height: -8)
-        backgroundView.layer?.shadowRadius = 8
-        backgroundView.layer?.masksToBounds = false
-        
-        // Add the actual Dock-style border with correct colors per mode
-        if isDarkMode {
-            backgroundView.layer?.borderColor = NSColor(red: 65/255, green: 65/255, blue: 65/255, alpha: 1.0).cgColor  // #414141
-        } else {
-            backgroundView.layer?.borderColor = NSColor(red: 229/255, green: 229/255, blue: 229/255, alpha: 1.0).cgColor  // #e5e5e5
-        }
-        backgroundView.layer?.borderWidth = 1
+        backgroundView.layer?.borderWidth = 0.5
         
         // Create stack view with proper sizing and distribution
         let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
