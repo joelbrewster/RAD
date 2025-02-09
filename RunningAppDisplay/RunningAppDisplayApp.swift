@@ -60,6 +60,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient]
+        runningAppsWindow.alphaValue = 1.0  // Keep window fully opaque
         
         // Initialize with current running apps
         if let frontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
@@ -121,8 +122,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
         blurView.blendingMode = .behindWindow
         blurView.state = .active
-        blurView.material = .hudWindow
+        blurView.material = .sidebar  // This matches the Finder sidebar blur
         blurView.wantsLayer = true
+        blurView.isEmphasized = true  // This helps with the darker blend
         
         // Adjust corner radius to match system UI
         blurView.layer?.cornerRadius = 16
@@ -159,6 +161,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         // runningApps.hasShadow = false
+        
+        // Ensure container view is above blur and fully opaque
+        containerView.layer?.zPosition = 1
+        containerView.alphaValue = 1.0
+        
+        // Make sure stack view with icons is fully opaque
+        stackView.alphaValue = 1.0
         
         // Add app icons
         for app in runningApps {
@@ -304,6 +313,7 @@ class ClickableImageView: NSImageView {
         }
     }
     
+    // TODO: Fix this part - be nice to right click to just quit app without confirmation
     override func rightMouseDown(with event: NSEvent) {
         guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else {
             print("⚠️ Could not find app with PID: \(self.tag)")
