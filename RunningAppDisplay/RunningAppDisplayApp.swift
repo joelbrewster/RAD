@@ -97,8 +97,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 48, height: 48)  // Increased to 48px
-        let spacing: CGFloat = 12  // Increased spacing for larger icons
+        let iconSize = NSSize(width: 42, height: 42)
+        let spacing: CGFloat = 12
         let horizontalPadding: CGFloat = 12
         let verticalPadding: CGFloat = 8
         let shadowPadding: CGFloat = 15
@@ -125,9 +125,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Set background color based on appearance
         let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         if isDarkMode {
-            backgroundView.layer?.backgroundColor = NSColor(white: 0.2, alpha: 0.95).cgColor
+            backgroundView.layer?.backgroundColor = NSColor(white: 0.2, alpha: 0.8).cgColor
         } else {
-            backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.95).cgColor
+            backgroundView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.8).cgColor
         }
         
         // Add shadow with more subtle menubar-like appearance
