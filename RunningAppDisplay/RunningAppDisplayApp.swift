@@ -170,7 +170,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     
                     if let filter = CIFilter(name: "CIColorControls") {
                         filter.setValue(ciImage, forKey: kCIInputImageKey)
-                        filter.setValue(0.25, forKey: kCIInputSaturationKey)
+                        // Set saturation so they're not too strong on the screen - disable while I play
+                        filter.setValue(1, forKey: kCIInputSaturationKey)
                         
                         if let outputImage = filter.outputImage {
                             let context = CIContext()
