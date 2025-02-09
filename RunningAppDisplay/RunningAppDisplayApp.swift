@@ -121,24 +121,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
         blurView.blendingMode = .behindWindow
         blurView.state = .active
-        blurView.material = .hudWindow // This matches the menubar blur
+        blurView.material = .hudWindow
         blurView.wantsLayer = true
         
-        // Adjust corner radius to match system UI (typically 4-5px)
+        // Adjust corner radius to match system UI
         blurView.layer?.cornerRadius = 16
-        blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // Only top-left corner
+        blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]
         
         // Add blur view to background
         backgroundView.addSubview(blurView)
         
-        // Remove the previous background color setup and just add a subtle border
-        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        if isDarkMode {
-            backgroundView.layer?.borderColor = NSColor(white: 1, alpha: 0.1).cgColor
-        } else {
-            backgroundView.layer?.borderColor = NSColor(white: 0, alpha: 0.1).cgColor
-        }
-        backgroundView.layer?.borderWidth = 0.5
+        // Remove border completely
+        backgroundView.layer?.borderWidth = 0
         
         // Create stack view with proper sizing and distribution
         let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
