@@ -63,9 +63,31 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.alphaValue = 1.0  // Keep window fully opaque
         
         // Initialize with current running apps
-        if let frontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
-            updateRecentApps(frontApp)
+        let runningApps = workspace.runningApplications.filter { 
+            $0.activationPolicy == .regular && 
+            $0.bundleIdentifier != Bundle.main.bundleIdentifier
         }
+        
+        // Add frontmost app first (far left)
+        if let frontApp = workspace.frontmostApplication?.bundleIdentifier {
+            recentAppOrder.append(frontApp)
+        }
+        
+        // Add other apps in current order
+        for app in runningApps {
+            if let bundleID = app.bundleIdentifier,
+               !recentAppOrder.contains(bundleID) {
+                if app.isHidden {
+                    // Hidden apps go to start (appears right)
+                    recentAppOrder.insert(bundleID, at: 0)
+                } else {
+                    // Normal apps go after front app
+                    recentAppOrder.append(bundleID)
+                }
+            }
+        }
+        
+        // Initial UI update
         updateRunningApps()
         
         // Add appearance change observer
@@ -75,21 +97,21 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func updateRecentApps(_ bundleID: String, moveToEnd: Bool = false) {
-        // First, remove the app from the current position
+        // First remove the app from wherever it is in the list
         recentAppOrder.removeAll { $0 == bundleID }
         
         if moveToEnd {
-            // Force it to the end
-            recentAppOrder.append(bundleID)
-            
-            // Force an immediate UI refresh
-            DispatchQueue.main.async {
-                self.updateRunningApps()
-            }
-        } else {
+            // For right-click (hidden apps), move to start (appears on right due to reversed sort)
             recentAppOrder.insert(bundleID, at: 0)
-            updateRunningApps()
+        } else if let frontApp = NSWorkspace.shared.frontmostApplication,
+                  frontApp.bundleIdentifier == bundleID {
+            // If this is the active app, force it to the far left
+            recentAppOrder.append(bundleID)
+        } else {
+            // For non-active apps, put them after the active app
+            recentAppOrder.insert(bundleID, at: 0)
         }
+        updateRunningApps()
     }
     
     func updateRunningApps() {
@@ -99,7 +121,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             $0.bundleIdentifier != Bundle.main.bundleIdentifier
         }
         
-        // Sort REVERSED - this will make higher indexes appear on the right
+        // Sort REVERSED - higher indexes on right
         runningApps.sort { app1, app2 in
             guard let id1 = app1.bundleIdentifier,
                   let id2 = app2.bundleIdentifier else { return false }
@@ -107,7 +129,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let index1 = recentAppOrder.firstIndex(of: id1) ?? Int.max
             let index2 = recentAppOrder.firstIndex(of: id2) ?? Int.max
             
-            // REVERSE the comparison to put higher indexes on the right
+            // Higher index = further right
             return index1 > index2
         }
         
@@ -321,26 +343,43 @@ class ClickableImageView: NSImageView {
     }
     
     override func mouseDown(with event: NSEvent) {
-        tooltipTimer?.invalidate()
-        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
-            popover?.close()
-            _ = app.activate(options: [.activateIgnoringOtherApps])
+        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
+              let bundleID = app.bundleIdentifier,
+              let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp else { return }
+        
+        print("Left click - Before order: \(appDelegate.recentAppOrder)")
+        
+        // Activate the app first
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+        
+        // Force active app to far left by moving all other apps right
+        let currentApps = appDelegate.recentAppOrder.filter { $0 != bundleID }
+        appDelegate.recentAppOrder = [bundleID] + currentApps
+        
+        print("Left click - After order: \(appDelegate.recentAppOrder)")
+        
+        // Force immediate UI update
+        DispatchQueue.main.async {
+            appDelegate.updateRunningApps()
         }
     }
     
     override func rightMouseDown(with event: NSEvent) {
         guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
-              let bundleID = app.bundleIdentifier else { return }
+              let bundleID = app.bundleIdentifier,
+              let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp else { return }
         
-        if let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp {
-            // Remove from current position
-            appDelegate.recentAppOrder.removeAll { $0 == bundleID }
-            // Add to START of list (will appear on right due to reversed sort)
-            appDelegate.recentAppOrder.insert(bundleID, at: 0)
-            // Hide the app
-            _ = app.hide()
-            // Update UI
-            appDelegate.updateRunningApps()
-        }
+        print("Right click - Before order: \(appDelegate.recentAppOrder)")
+        
+        // Hide first
+        _ = app.hide()
+        
+        // Move to far right by keeping all other apps in current order
+        let currentApps = appDelegate.recentAppOrder.filter { $0 != bundleID }
+        appDelegate.recentAppOrder = currentApps + [bundleID]
+        
+        print("Right click - After order: \(appDelegate.recentAppOrder)")
+        
+        appDelegate.updateRunningApps()
     }
 }
