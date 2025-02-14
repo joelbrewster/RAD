@@ -98,10 +98,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 < index2
         }
         
-        let iconSize = NSSize(width: 42, height: 42)
-        let spacing: CGFloat = 12
-        let horizontalPadding: CGFloat = 12
-        let verticalPadding: CGFloat = 8
+//        let iconSize = NSSize(width: 19, height: 19)
+        let iconSize = NSSize(width: 48, height: 48)
+        let spacing: CGFloat = 10
+        let horizontalPadding: CGFloat = 6
+        let verticalPadding: CGFloat = 6
         let shadowPadding: CGFloat = 15
         
         // Calculate total width and height including shadow space
@@ -120,11 +121,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
-        blurView.blendingMode = .behindWindow
+        blurView.blendingMode = .withinWindow
         blurView.state = .active
-        blurView.material = .sidebar  // This matches the Finder sidebar blur
+        blurView.material = .titlebar
         blurView.wantsLayer = true
-        blurView.isEmphasized = true  // This helps with the darker blend
+        blurView.isEmphasized = true
+        blurView.appearance = NSAppearance(named: .darkAqua)  // Force dark appearance
         
         // Adjust corner radius to match system UI
         blurView.layer?.cornerRadius = 16
@@ -315,36 +317,9 @@ class ClickableImageView: NSImageView {
     
     // TODO: Fix this part - be nice to right click to just quit app without confirmation
     override func rightMouseDown(with event: NSEvent) {
-        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else {
-            print("⚠️ Could not find app with PID: \(self.tag)")
-            return 
-        }
+        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
         
-        print("🎯 Attempting to quit: \(app.localizedName ?? "Unknown")")
-        print("   Bundle ID: \(app.bundleIdentifier ?? "none")")
-        print("   PID: \(app.processIdentifier)")
-        print("   Is Active: \(app.isActive)")
-        print("   Activation Policy: \(app.activationPolicy.rawValue)")
-        
-        // Try graceful quit first
-        let success = app.terminate()
-        print(success ? "✅ Quit request sent successfully" : "❌ Failed to send quit request")
-        
-        // If app doesn't quit within 2 seconds, force quit
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if app.isTerminated == false {
-                print("⚡ App didn't quit")
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/kill")
-                process.arguments = ["-9", String(app.processIdentifier)]
-                
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                } catch {
-                    print("Failed to force quit: \(error)")
-                }
-            }
-        }
+        // Simple, direct termination
+        _ = app.hide()
     }
 }
