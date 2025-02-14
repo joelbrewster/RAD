@@ -435,10 +435,10 @@ class ResizeHandleView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         
-        // Create the handle indicator
+        // Create the handle indicator (initially hidden)
         handleIndicator = NSView(frame: NSRect(x: frame.width/2 - 20, y: 2, width: 40, height: 4))
         handleIndicator.wantsLayer = true
-        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.3).cgColor
+        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.0).cgColor
         handleIndicator.layer?.cornerRadius = 2
         addSubview(handleIndicator)
     }
@@ -460,12 +460,20 @@ class ResizeHandleView: NSView {
     
     override func mouseEntered(with event: NSEvent) {
         NSCursor.resizeUpDown.push()
-        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.5).cgColor
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            handleIndicator.animator().alphaValue = 0.5
+        }
     }
     
     override func mouseExited(with event: NSEvent) {
         NSCursor.pop()
-        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.3).cgColor
+        if !isDragging {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                handleIndicator.animator().alphaValue = 0
+            }
+        }
     }
     
     override func mouseDown(with event: NSEvent) {
@@ -496,6 +504,12 @@ class ResizeHandleView: NSView {
     
     override func mouseUp(with event: NSEvent) {
         isDragging = false
+        if !NSPointInRect(convert(event.locationInWindow, from: nil), bounds) {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                handleIndicator.animator().alphaValue = 0
+            }
+        }
         print("=== DRAG END ===")
         print("Final Y: \(NSEvent.mouseLocation.y)")
     }
