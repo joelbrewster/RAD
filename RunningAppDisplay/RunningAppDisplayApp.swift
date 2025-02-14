@@ -121,7 +121,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             $0.bundleIdentifier != Bundle.main.bundleIdentifier
         }
         
-        // Sort REVERSED - higher indexes on right
+        // FORCE THE SORT ORDER - HIGHER INDEX = RIGHT SIDE
         runningApps.sort { app1, app2 in
             guard let id1 = app1.bundleIdentifier,
                   let id2 = app2.bundleIdentifier else { return false }
@@ -129,8 +129,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let index1 = recentAppOrder.firstIndex(of: id1) ?? Int.max
             let index2 = recentAppOrder.firstIndex(of: id2) ?? Int.max
             
-            // Higher index = further right
-            return index1 > index2
+            return index1 > index2  // This makes higher indexes go RIGHT
         }
         
 //        let iconSize = NSSize(width: 19, height: 19)
@@ -371,15 +370,19 @@ class ClickableImageView: NSImageView {
         
         print("Right click - Before order: \(appDelegate.recentAppOrder)")
         
-        // Hide first
+        // Hide the app
         _ = app.hide()
         
-        // Move to far right by keeping all other apps in current order
-        let currentApps = appDelegate.recentAppOrder.filter { $0 != bundleID }
-        appDelegate.recentAppOrder = currentApps + [bundleID]
+        // FORCE IT TO THE RIGHT - PERIOD.
+        appDelegate.recentAppOrder.removeAll { $0 == bundleID }
+        appDelegate.recentAppOrder.insert(bundleID, at: 0)  // This puts it far right because of reversed sort
         
         print("Right click - After order: \(appDelegate.recentAppOrder)")
         
+        // FORCE UPDATE NOW
         appDelegate.updateRunningApps()
+        DispatchQueue.main.async {
+            appDelegate.updateRunningApps()  // Double-tap the update to make sure
+        }
     }
 }
