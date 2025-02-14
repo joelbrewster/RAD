@@ -56,7 +56,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.level = .statusBar
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
-        runningAppsWindow.hasShadow = false
+        runningAppsWindow.hasShadow = true    // Enable shadow for dock-like appearance
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient]
@@ -155,12 +155,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
-        blurView.blendingMode = .withinWindow
+        blurView.blendingMode = .behindWindow  // Change to behindWindow to blur content behind
         blurView.state = .active
-        blurView.material = .titlebar
+        blurView.material = .hudWindow         // Change to hudWindow for dock-like appearance
         blurView.wantsLayer = true
         blurView.isEmphasized = true
-        blurView.appearance = NSAppearance(named: .darkAqua)  // Force dark appearance
+        blurView.appearance = NSAppearance(named: .darkAqua)
         
         // Adjust corner radius to match system UI
         blurView.layer?.cornerRadius = 16
