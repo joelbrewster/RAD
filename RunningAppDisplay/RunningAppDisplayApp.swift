@@ -74,28 +74,41 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
     }
     
-    func updateRecentApps(_ bundleID: String) {
-        // Remove if exists and add to front
+    func updateRecentApps(_ bundleID: String, moveToEnd: Bool = false) {
+        // First, remove the app from the current position
         recentAppOrder.removeAll { $0 == bundleID }
-        recentAppOrder.insert(bundleID, at: 0)
-        updateRunningApps()
+        
+        if moveToEnd {
+            // Force it to the end
+            recentAppOrder.append(bundleID)
+            
+            // Force an immediate UI refresh
+            DispatchQueue.main.async {
+                self.updateRunningApps()
+            }
+        } else {
+            recentAppOrder.insert(bundleID, at: 0)
+            updateRunningApps()
+        }
     }
     
     func updateRunningApps() {
         let workspace = NSWorkspace.shared
         var runningApps = workspace.runningApplications.filter { 
             $0.activationPolicy == .regular && 
-            $0.bundleIdentifier != Bundle.main.bundleIdentifier  // Filter out RAD app
+            $0.bundleIdentifier != Bundle.main.bundleIdentifier
         }
         
-        // Sort apps based on recent usage
+        // Sort REVERSED - this will make higher indexes appear on the right
         runningApps.sort { app1, app2 in
             guard let id1 = app1.bundleIdentifier,
                   let id2 = app2.bundleIdentifier else { return false }
             
             let index1 = recentAppOrder.firstIndex(of: id1) ?? Int.max
             let index2 = recentAppOrder.firstIndex(of: id2) ?? Int.max
-            return index1 < index2
+            
+            // REVERSE the comparison to put higher indexes on the right
+            return index1 > index2
         }
         
 //        let iconSize = NSSize(width: 19, height: 19)
@@ -316,7 +329,18 @@ class ClickableImageView: NSImageView {
     }
     
     override func rightMouseDown(with event: NSEvent) {
-        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
-        _ = app.hide()
+        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
+              let bundleID = app.bundleIdentifier else { return }
+        
+        if let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp {
+            // Remove from current position
+            appDelegate.recentAppOrder.removeAll { $0 == bundleID }
+            // Add to START of list (will appear on right due to reversed sort)
+            appDelegate.recentAppOrder.insert(bundleID, at: 0)
+            // Hide the app
+            _ = app.hide()
+            // Update UI
+            appDelegate.updateRunningApps()
+        }
     }
 }
