@@ -15,6 +15,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var appearanceObserver: Any?
     var terminationObserver: Any?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
+    var currentIconSize: CGFloat = 48  // Add this new property
     
     static func main() {
         let app = NSApplication.shared
@@ -132,25 +133,37 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return index1 > index2  // This makes higher indexes go RIGHT
         }
         
-//        let iconSize = NSSize(width: 19, height: 19)
-        let iconSize = NSSize(width: 48, height: 48)
+        let iconSize = NSSize(width: currentIconSize, height: currentIconSize)  // Use dynamic size
         let spacing: CGFloat = 10
         let horizontalPadding: CGFloat = 6
         let verticalPadding: CGFloat = 6
         let shadowPadding: CGFloat = 15
         
-        // Calculate total width and height including shadow space
+        // Add resize handle height
+        let resizeHandleHeight: CGFloat = 8
+        
+        // Adjust content height to include resize handle
         let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
-        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2)
+        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2) + resizeHandleHeight
         let totalWidth = contentWidth + (shadowPadding * 2)
         let totalHeight = contentHeight + (shadowPadding * 2)
         
         // Create container view with extra space for shadow
         let containerView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
         
-        // Create background view positioned to allow shadow space
-        let backgroundView = NSView(frame: NSRect(x: shadowPadding, y: shadowPadding, 
-                                                width: contentWidth, height: contentHeight))
+        // Create and add resize handle
+        let resizeHandle = ResizeHandleView(frame: NSRect(x: shadowPadding, 
+                                                        y: totalHeight - resizeHandleHeight - shadowPadding,
+                                                        width: contentWidth,
+                                                        height: resizeHandleHeight))
+        resizeHandle.delegate = self
+        containerView.addSubview(resizeHandle)
+        
+        // Adjust background view position to account for resize handle
+        let backgroundView = NSView(frame: NSRect(x: shadowPadding, 
+                                                y: shadowPadding,
+                                                width: contentWidth, 
+                                                height: contentHeight - resizeHandleHeight))
         backgroundView.wantsLayer = true
         
         // Create visual effect view for blur
@@ -386,3 +399,105 @@ class ClickableImageView: NSImageView {
         }
     }
 }
+
+// Add resize handle delegate protocol
+protocol ResizeHandleDelegate: AnyObject {
+    func handleResize(newSize: CGFloat)
+}
+
+// Add resize handle implementation
+extension RunningAppDisplayApp: ResizeHandleDelegate {
+    func handleResize(newSize: CGFloat) {
+        let screenHeight = NSScreen.main?.frame.height ?? 1000
+        let maxIconSize: CGFloat = screenHeight / 3
+        let minIconSize: CGFloat = 24
+        
+        let clampedSize = min(max(newSize, minIconSize), maxIconSize)
+        
+        print("Resize - Raw New Size: \(newSize), Clamped Size: \(clampedSize), Current Size: \(currentIconSize), Max Size: \(maxIconSize)")
+        
+        if abs(currentIconSize - clampedSize) > 0.5 {
+            currentIconSize = clampedSize
+            updateRunningApps()
+        }
+    }
+}
+
+// Add this class at the top level
+class ResizeHandleView: NSView {
+    weak var delegate: ResizeHandleDelegate?
+    private var isDragging = false
+    private var lastY: CGFloat = 0
+    private let sizeIncrement: CGFloat = 15
+    private var handleIndicator: NSView!
+    
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        
+        // Create the handle indicator
+        handleIndicator = NSView(frame: NSRect(x: frame.width/2 - 20, y: 2, width: 40, height: 4))
+        handleIndicator.wantsLayer = true
+        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.3).cgColor
+        handleIndicator.layer?.cornerRadius = 2
+        addSubview(handleIndicator)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.resizeUpDown.push()
+        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.5).cgColor
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.pop()
+        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.3).cgColor
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        isDragging = true
+        lastY = NSEvent.mouseLocation.y
+        print("=== DRAG START ===")
+        print("Initial Y: \(lastY)")
+    }
+    
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragging else { return }
+        
+        let currentY = NSEvent.mouseLocation.y
+        let deltaY = currentY - lastY
+        
+        // Reduced threshold for more sensitive movement
+        if abs(deltaY) > 3 {  // Changed from 10 to 3
+            lastY = currentY
+            
+            if let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp {
+                // Increase size when moving up, decrease when moving down
+                let newSize = appDelegate.currentIconSize + (deltaY > 0 ? sizeIncrement : -sizeIncrement)
+                print("Resizing to: \(newSize) (Delta: \(deltaY))")
+                delegate?.handleResize(newSize: newSize)
+            }
+        }
+    }
+    
+    override func mouseUp(with event: NSEvent) {
+        isDragging = false
+        print("=== DRAG END ===")
+        print("Final Y: \(NSEvent.mouseLocation.y)")
+    }
+}
+
