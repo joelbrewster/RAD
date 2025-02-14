@@ -315,11 +315,8 @@ class ClickableImageView: NSImageView {
         }
     }
     
-    // TODO: Fix this part - be nice to right click to just quit app without confirmation
     override func rightMouseDown(with event: NSEvent) {
         guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
-        
-        // Simple, direct termination
         _ = app.hide()
     }
 }
