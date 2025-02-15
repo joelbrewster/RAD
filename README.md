@@ -37,4 +37,16 @@ This project is licensed under the GNU General Public License (GPL). See [LICENS
 
 ## Note
 
-This is a hobby project built for learning purposes and from boredom. Contributions and suggestions are welcome! I'm not a Swift developer by any means so if there's a better way to do something, please let me know.
+I use this dock with an increase with the dock's auto-hide feature:
+```
+defaults write com.apple.dock autohide-delay -float 100 && killall Dock
+```
+To reset it back to default:
+```
+defaults delete com.apple.dock autohide-delay && killall Dock
+```
+Make sure Dock auto-hide is enabled in System Settings for this to work. You can toggle the dock with cmd+option+d if needed.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a PR. Please note, this is a hobby project built for learning purposes and from boredom. Contributions and suggestions are welcome! I'm not a Swift developer by any means so if there's a better way to do something, please let me know.
