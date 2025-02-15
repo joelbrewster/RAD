@@ -255,7 +255,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                         // Apply filter to non-active apps
                         if let filter = CIFilter(name: "CIColorControls") {
                             filter.setValue(ciImage, forKey: kCIInputImageKey)
-                            filter.setValue(0, forKey: kCIInputSaturationKey) // Remove color
+                            filter.setValue(0.75, forKey: kCIInputSaturationKey) // Remove color
                             
                             // Adjust brightness and contrast based on appearance
                             let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -409,7 +409,7 @@ class ClickableImageView: NSImageView {
             let ciImage = CIImage(cgImage: cgImage)
             if let filter = CIFilter(name: "CIColorControls") {
                 filter.setValue(ciImage, forKey: kCIInputImageKey)
-                filter.setValue(0, forKey: kCIInputSaturationKey) // Remove color again
+                filter.setValue(0.75, forKey: kCIInputSaturationKey) // Remove color again
                 
                 let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 if isDarkMode {
