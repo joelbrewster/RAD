@@ -246,39 +246,57 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 
                 if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                     let ciImage = CIImage(cgImage: cgImage)
+                    let finalIcon: NSImage
                     
-                    if let filter = CIFilter(name: "CIColorControls") {
-                        filter.setValue(ciImage, forKey: kCIInputImageKey)
-                        // Set saturation so they're not too strong on the screen - disable while I play
-                        filter.setValue(1, forKey: kCIInputSaturationKey)
-                        
-                        if let outputImage = filter.outputImage {
-                            let context = CIContext()
-                            if let cgOutput = context.createCGImage(outputImage, from: outputImage.extent) {
-                                let filteredIcon = NSImage(cgImage: cgOutput, size: iconSize)
-                                
-                                // Create fixed-size container
-                                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                                containerView.wantsLayer = true
-                                
-                                // Configure image view to fit within container
-                                let imageView = ClickableImageView(frame: containerView.bounds)
-                                imageView.imageScaling = .scaleProportionallyDown
-                                imageView.image = filteredIcon
-                                imageView.wantsLayer = true
-                                imageView.layer?.masksToBounds = true
-                                imageView.tag = Int(app.processIdentifier)
-                                
-                                // Center image in container
-                                containerView.addSubview(imageView)
-                                
-                                // Add fixed-width constraint to container
-                                containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
-                                
-                                stackView.addArrangedSubview(containerView)
+                    // Check if this is the active app (will be at the FIRST position due to reversed sort)
+                    if app == runningApps.first {
+                        finalIcon = NSImage(cgImage: cgImage, size: iconSize)
+                    } else {
+                        // Apply filter to non-active apps
+                        if let filter = CIFilter(name: "CIColorControls") {
+                            filter.setValue(ciImage, forKey: kCIInputImageKey)
+                            filter.setValue(0, forKey: kCIInputSaturationKey) // Remove color
+                            
+                            // Adjust brightness and contrast based on appearance
+                            let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                            if isDarkMode {
+                                filter.setValue(1.4, forKey: kCIInputContrastKey)   // Increase contrast in dark mode
+                                filter.setValue(0.2, forKey: kCIInputBrightnessKey) // Lighter in dark mode
+                            } else {
+                                filter.setValue(1.2, forKey: kCIInputContrastKey)   // Keep original contrast in light mode
+                                filter.setValue(0.1, forKey: kCIInputBrightnessKey) // Very slightly darker in light mode
                             }
+                            
+                            if let outputImage = filter.outputImage,
+                               let context = CIContext(options: nil).createCGImage(outputImage, from: outputImage.extent) {
+                                finalIcon = NSImage(cgImage: context, size: iconSize)
+                            } else {
+                                finalIcon = NSImage(cgImage: cgImage, size: iconSize)
+                            }
+                        } else {
+                            finalIcon = NSImage(cgImage: cgImage, size: iconSize)
                         }
                     }
+                    
+                    // Create fixed-size container
+                    let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                    containerView.wantsLayer = true
+                    
+                    // Configure image view to fit within container
+                    let imageView = ClickableImageView(frame: containerView.bounds)
+                    imageView.imageScaling = .scaleProportionallyDown
+                    imageView.image = finalIcon
+                    imageView.wantsLayer = true
+                    imageView.layer?.masksToBounds = true
+                    imageView.tag = Int(app.processIdentifier)
+                    
+                    // Center image in container
+                    containerView.addSubview(imageView)
+                    
+                    // Add fixed-width constraint to container
+                    containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
+                    
+                    stackView.addArrangedSubview(containerView)
                 }
             }
         }
