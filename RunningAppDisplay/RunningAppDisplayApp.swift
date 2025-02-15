@@ -26,8 +26,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Setup workspace notifications
         let workspace = NSWorkspace.shared
+        
+        // Keep existing activation observer
         workspaceNotificationObserver = workspace.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -35,6 +36,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                    let bundleID = app.bundleIdentifier {
                     self?.updateRecentApps(bundleID)
+                }
+        }
+        
+        // Add new observer specifically for hiding
+        workspace.notificationCenter.addObserver(
+            forName: NSWorkspace.didHideApplicationNotification,
+            object: nil,
+            queue: nil) { [weak self] notification in
+                if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                   let bundleID = app.bundleIdentifier {
+                    self?.updateRecentApps(bundleID, moveToEnd: true)
                 }
         }
         
