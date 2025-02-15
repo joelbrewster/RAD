@@ -379,6 +379,16 @@ class ClickableImageView: NSImageView {
         isMouseInside = true
         lastMouseMovement = Date()
         
+        // Recolor the icon if it's not the active app
+        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
+           app != NSWorkspace.shared.frontmostApplication,
+           let appIcon = app.icon {
+            appIcon.size = bounds.size
+            DispatchQueue.main.async {
+                self.image = appIcon  // Just use the original icon, no filter
+            }
+        }
+
         tooltipTimer?.invalidate()
         tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
             self?.showTooltipIfNeeded()
@@ -391,6 +401,31 @@ class ClickableImageView: NSImageView {
         tooltipTimer = nil
         popover?.close()
         popover = nil
+        
+        // Restore the desaturated state if it's not the active app
+        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
+           app != NSWorkspace.shared.frontmostApplication,
+           let cgImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let ciImage = CIImage(cgImage: cgImage)
+            if let filter = CIFilter(name: "CIColorControls") {
+                filter.setValue(ciImage, forKey: kCIInputImageKey)
+                filter.setValue(0, forKey: kCIInputSaturationKey) // Remove color again
+                
+                let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                if isDarkMode {
+                    filter.setValue(1.4, forKey: kCIInputContrastKey)
+                    filter.setValue(0.2, forKey: kCIInputBrightnessKey)
+                } else {
+                    filter.setValue(1.2, forKey: kCIInputContrastKey)
+                    filter.setValue(0.1, forKey: kCIInputBrightnessKey)
+                }
+                
+                if let outputImage = filter.outputImage,
+                   let context = CIContext(options: nil).createCGImage(outputImage, from: outputImage.extent) {
+                    self.image = NSImage(cgImage: context, size: self.bounds.size)
+                }
+            }
+        }
     }
     
     override func mouseDown(with event: NSEvent) {
