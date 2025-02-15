@@ -134,7 +134,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)  // Use dynamic size
-        let spacing: CGFloat = 10
+        let spacing: CGFloat = 6
         let horizontalPadding: CGFloat = 6
         let verticalPadding: CGFloat = 6
         let shadowPadding: CGFloat = 15
@@ -168,16 +168,25 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
-        blurView.blendingMode = .behindWindow  // Change to behindWindow to blur content behind
+        blurView.blendingMode = .withinWindow
         blurView.state = .active
-        blurView.material = .hudWindow         // Change to hudWindow for dock-like appearance
+        blurView.material = .hudWindow  // Changed to hudWindow for better color match
         blurView.wantsLayer = true
         blurView.isEmphasized = true
-        blurView.appearance = NSAppearance(named: .darkAqua)
         
-        // Adjust corner radius to match system UI
-        blurView.layer?.cornerRadius = 16
-        blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]
+        // Match system appearance
+        blurView.appearance = NSApp.effectiveAppearance
+        
+        // More transparent border
+        blurView.layer?.borderWidth = 0.5
+        blurView.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        
+        // Simple top left corner radius
+        blurView.layer?.cornerRadius = 12
+        blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // TOP LEFT
+        
+        // Adjust transparency
+        blurView.alphaValue = 0.7  // More transparent to better match dock
         
         // Add blur view to background
         backgroundView.addSubview(blurView)
