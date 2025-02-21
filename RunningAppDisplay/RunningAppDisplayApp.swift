@@ -563,15 +563,14 @@ class ResizeHandleView: NSView {
         guard isDragging else { return }
         
         let currentY = NSEvent.mouseLocation.y
-        let deltaY = currentY - lastY
+        let deltaY = (currentY - lastY) * 100
         
-        // Reduced threshold for more sensitive movement
-        if abs(deltaY) > 3 {  // Changed from 10 to 3
+        if abs(deltaY) > 0.5 {
             lastY = currentY
             
             if let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp {
-                // Increase size when moving up, decrease when moving down
-                let newSize = appDelegate.currentIconSize + (deltaY > 0 ? sizeIncrement : -sizeIncrement)
+                let sizeChange: CGFloat = (deltaY > 0 ? 15 : -15) // Back to original 15-pixel increments
+                let newSize = appDelegate.currentIconSize + sizeChange
                 print("Resizing to: \(newSize) (Delta: \(deltaY))")
                 delegate?.handleResize(newSize: newSize)
             }
