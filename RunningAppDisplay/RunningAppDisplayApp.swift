@@ -242,7 +242,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                appIcon.size = iconSize
+                // Always get a slightly larger icon for better quality when scaling down
+                let baseIconSize = max(currentIconSize * 1.5, 36) // Never go below 36pt for source
+                appIcon.size = NSSize(width: baseIconSize, height: baseIconSize)
                 
                 if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                     let ciImage = CIImage(cgImage: cgImage)
