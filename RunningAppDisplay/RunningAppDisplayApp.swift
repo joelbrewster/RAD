@@ -242,31 +242,29 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                // Always get a slightly larger icon for better quality when scaling down
-                let baseIconSize = max(currentIconSize * 1.5, 36) // Never go below 36pt for source
+                let baseIconSize = max(currentIconSize * 1.5, 36)
                 appIcon.size = NSSize(width: baseIconSize, height: baseIconSize)
                 
                 if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                     let ciImage = CIImage(cgImage: cgImage)
                     let finalIcon: NSImage
                     
-                    // Check if this is the active app (will be at the FIRST position due to reversed sort)
+                    // Check if this is the active app
                     if app == runningApps.first {
                         finalIcon = NSImage(cgImage: cgImage, size: iconSize)
                     } else {
                         // Apply filter to non-active apps
                         if let filter = CIFilter(name: "CIColorControls") {
                             filter.setValue(ciImage, forKey: kCIInputImageKey)
-                            filter.setValue(0.75, forKey: kCIInputSaturationKey) // Remove color
+                            filter.setValue(0.75, forKey: kCIInputSaturationKey)
                             
-                            // Adjust brightness and contrast based on appearance
                             let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                             if isDarkMode {
-                                filter.setValue(1.4, forKey: kCIInputContrastKey)   // Increase contrast in dark mode
-                                filter.setValue(0.2, forKey: kCIInputBrightnessKey) // Lighter in dark mode
+                                filter.setValue(1.4, forKey: kCIInputContrastKey)
+                                filter.setValue(0.2, forKey: kCIInputBrightnessKey)
                             } else {
-                                filter.setValue(1.2, forKey: kCIInputContrastKey)   // Keep original contrast in light mode
-                                filter.setValue(0.1, forKey: kCIInputBrightnessKey) // Very slightly darker in light mode
+                                filter.setValue(1.2, forKey: kCIInputContrastKey)
+                                filter.setValue(0.1, forKey: kCIInputBrightnessKey)
                             }
                             
                             if let outputImage = filter.outputImage,
@@ -284,13 +282,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
                     containerView.wantsLayer = true
                     
-                    // Configure image view to fit within container
                     let imageView = ClickableImageView(frame: containerView.bounds)
                     imageView.imageScaling = .scaleProportionallyDown
                     imageView.image = finalIcon
                     imageView.wantsLayer = true
                     imageView.layer?.masksToBounds = true
                     imageView.tag = Int(app.processIdentifier)
+                    
+                    // Set opacity for hidden apps
+                    imageView.alphaValue = app.isHidden ? 0.5 : 1.0
                     
                     // Center image in container
                     containerView.addSubview(imageView)
@@ -435,16 +435,15 @@ class ClickableImageView: NSImageView {
               let bundleID = app.bundleIdentifier,
               let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp else { return }
         
-        print("Left click - Before order: \(appDelegate.recentAppOrder)")
-        
         // Activate the app first
         _ = app.activate(options: [.activateIgnoringOtherApps])
+        
+        // Reset opacity since app is now active
+        self.alphaValue = 1.0
         
         // Force active app to far left by moving all other apps right
         let currentApps = appDelegate.recentAppOrder.filter { $0 != bundleID }
         appDelegate.recentAppOrder = [bundleID] + currentApps
-        
-        print("Left click - After order: \(appDelegate.recentAppOrder)")
         
         // Force immediate UI update
         DispatchQueue.main.async {
