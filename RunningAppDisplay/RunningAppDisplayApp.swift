@@ -350,7 +350,12 @@ class ClickableImageView: NSImageView {
     
     private func showTooltipIfNeeded() {
         guard isMouseInside,
-              let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
+              let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
+              window != nil  // Add this check
+              else { return }
+        
+        // Close existing popover if any
+        popover?.close()
         
         let popover = NSPopover()
         popover.behavior = .semitransient
@@ -435,8 +440,8 @@ class ClickableImageView: NSImageView {
               let bundleID = app.bundleIdentifier,
               let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp else { return }
         
-        // Activate the app first
-        _ = app.activate(options: [.activateIgnoringOtherApps])
+        // Update to use non-deprecated activation method
+        _ = app.activate(options: .activateAllWindows)
         
         // Reset opacity since app is now active
         self.alphaValue = 1.0
