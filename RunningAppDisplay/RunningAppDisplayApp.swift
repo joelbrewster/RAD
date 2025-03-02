@@ -15,7 +15,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var appearanceObserver: Any?
     var terminationObserver: Any?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
-    var currentIconSize: CGFloat = 48  // Add this new property
+    var currentIconSize: CGFloat = UserDefaults.standard.float(forKey: "iconSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "iconSize")) : 48
     
     static func main() {
         let app = NSApplication.shared
@@ -494,10 +494,9 @@ extension RunningAppDisplayApp: ResizeHandleDelegate {
         
         let clampedSize = min(max(newSize, minIconSize), maxIconSize)
         
-        print("Resize - Raw New Size: \(newSize), Clamped Size: \(clampedSize), Current Size: \(currentIconSize), Max Size: \(maxIconSize)")
-        
         if abs(currentIconSize - clampedSize) > 0.5 {
             currentIconSize = clampedSize
+            UserDefaults.standard.set(Float(clampedSize), forKey: "iconSize")
             updateRunningApps()
         }
     }
