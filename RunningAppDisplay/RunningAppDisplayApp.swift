@@ -304,8 +304,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         
         // Add edge handles
-        let leftHandle = EdgeHandleView(frame: NSRect(x: 0, y: shadowPadding, width: 20, height: contentHeight))
-        let rightHandle = EdgeHandleView(frame: NSRect(x: contentWidth - 20, y: shadowPadding, width: 20, height: contentHeight))
+        let leftHandle = EdgeHandleView(frame: NSRect(x: 0, y: shadowPadding, width: 20, height: contentHeight), isLeft: true)
+        let rightHandle = EdgeHandleView(frame: NSRect(x: contentWidth - 20, y: shadowPadding, width: 20, height: contentHeight), isLeft: false)
 
         containerView.addSubview(leftHandle)
         containerView.addSubview(rightHandle)
@@ -604,8 +604,10 @@ class ResizeHandleView: NSView {
 class EdgeHandleView: NSView {
     private var isDragging = false
     private var startX: CGFloat = 0
+    private let isLeftHandle: Bool
     
-    override init(frame: NSRect) {
+    init(frame: NSRect, isLeft: Bool) {
+        self.isLeftHandle = isLeft
         super.init(frame: frame)
         wantsLayer = true
         
@@ -633,21 +635,24 @@ class EdgeHandleView: NSView {
     override func mouseDown(with event: NSEvent) {
         isDragging = true
         startX = NSEvent.mouseLocation.x
-        print("=== EDGE DRAG START ===")
-        print("Initial X: \(startX)")
     }
     
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
         let currentX = NSEvent.mouseLocation.x
         let deltaX = currentX - startX
-        print("Dragged distance: \(deltaX)px")
+        
+        // Log once per drag direction
+        if (isLeftHandle && deltaX < -10) {
+            print("Dragging LEFT edge: \(deltaX)px")
+            isDragging = false  // Stop after first detection
+        } else if (!isLeftHandle && deltaX > 10) {
+            print("Dragging RIGHT edge: \(deltaX)px")
+            isDragging = false  // Stop after first detection
+        }
     }
     
     override func mouseUp(with event: NSEvent) {
-        print("=== EDGE DRAG END ===")
-        print("Final X: \(NSEvent.mouseLocation.x)")
-        print("Total distance: \(NSEvent.mouseLocation.x - startX)px")
         isDragging = false
     }
 }
