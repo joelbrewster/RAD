@@ -234,7 +234,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         switch currentDockPosition {
         case .left:
-            xPosition = screen.visibleFrame.minX
+            xPosition = screen.visibleFrame.minX - shadowOffset  // Add negative offset for left side
         case .center:
             xPosition = (screen.visibleFrame.width - totalWidth) / 2
         case .right:
@@ -724,14 +724,15 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
             }
         }
         
+        let shadowOffset: CGFloat = 15
         let newX: CGFloat
         switch newPosition {
         case .left:
-            newX = screen.visibleFrame.minX
+            newX = screen.visibleFrame.minX - shadowOffset  // Add negative offset for left side
         case .center:
             newX = (screen.visibleFrame.width - runningAppsWindow.frame.width) / 2
         case .right:
-            newX = screen.visibleFrame.maxX - runningAppsWindow.frame.width
+            newX = screen.visibleFrame.maxX - runningAppsWindow.frame.width + shadowOffset
         }
         
         // Update position state
