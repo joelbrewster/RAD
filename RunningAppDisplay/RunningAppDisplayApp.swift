@@ -194,26 +194,29 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         blurView.material = .hudWindow  // Changed to hudWindow for better color match
         blurView.wantsLayer = true
         blurView.isEmphasized = true
-        
+
         // Match system appearance
         blurView.appearance = NSApp.effectiveAppearance
-        
+
         // Remove ALL border properties first
         blurView.layer?.borderWidth = 0
         blurView.layer?.borderColor = nil
-        
+
         // Simple top corner radius
         blurView.layer?.cornerRadius = 12
-        // Update the corner masking based on dock position
+        // First, clear all masked corners
+        blurView.layer?.maskedCorners = []
+        
+        // Then set only the corners we want
         switch currentDockPosition {
         case .left:
-            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]  // TOP RIGHT
+            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]  // Only TOP RIGHT corner
         case .center:
-            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]  // TOP LEFT AND RIGHT
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]  // BOTH top corners
         case .right:
-            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // TOP LEFT
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // Only TOP LEFT corner
         }
-        
+
         // Adjust transparency
         blurView.alphaValue = 0.7  // More transparent to better match dock
         
@@ -727,27 +730,21 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
             }
         }
         
-        let shadowOffset: CGFloat = 15
-        let newX: CGFloat
-        switch newPosition {
-        case .left:
-            newX = screen.visibleFrame.minX - shadowOffset
-        case .center:
-            newX = (screen.visibleFrame.width - runningAppsWindow.frame.width) / 2
-        case .right:
-            newX = screen.visibleFrame.maxX - runningAppsWindow.frame.width + shadowOffset
-        }
-        
         // Update position state
         currentDockPosition = newPosition
         leftHandle?.currentPosition = newPosition
         rightHandle?.currentPosition = newPosition
+        UserDefaults.standard.set(newPosition.rawValue, forKey: "dockPosition")
         
-        // Move window
-        runningAppsWindow.setFrameOrigin(NSPoint(x: newX, y: runningAppsWindow.frame.minY))
-        
-        // Force UI update to refresh corner masking
-        updateRunningApps()
+        // Clear all content and force complete rebuild
+        if let contentView = runningAppsWindow.contentView {
+            contentView.subviews.forEach { $0.removeFromSuperview() }
+            
+            // Force complete rebuild by calling updateRunningApps
+            DispatchQueue.main.async {
+                self.updateRunningApps()
+            }
+        }
     }
 }
 
