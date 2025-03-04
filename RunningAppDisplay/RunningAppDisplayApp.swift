@@ -17,7 +17,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var leftHandle: EdgeHandleView?
     var rightHandle: EdgeHandleView?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
-    var currentDockPosition: DockPosition = .right // Add this to track position
+    var currentDockPosition: DockPosition = {
+        if let savedPosition = UserDefaults.standard.string(forKey: "dockPosition"),
+           let position = DockPosition(rawValue: savedPosition) {
+            return position
+        }
+        return .center  // Default to center
+    }()
     var currentIconSize: CGFloat = UserDefaults.standard.float(forKey: "iconSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "iconSize")) : 48
     
     static func main() {
@@ -632,10 +638,10 @@ class ResizeHandleView: NSView {
     }
 }
 
-enum DockPosition {
-    case left
-    case center
-    case right
+enum DockPosition: String {
+    case left = "left"
+    case center = "center"
+    case right = "right"
 }
 
 protocol EdgeHandleDelegate: AnyObject {
