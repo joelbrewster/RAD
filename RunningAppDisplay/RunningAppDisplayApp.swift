@@ -192,11 +192,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Match system appearance
         blurView.appearance = NSApp.effectiveAppearance
         
-        // More transparent border
-        blurView.layer?.borderWidth = 0.5
-        blurView.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        // Remove ALL border properties first
+        blurView.layer?.borderWidth = 0
+        blurView.layer?.borderColor = nil
         
-        // Simple top left corner radius
+        // Simple top corner radius
         blurView.layer?.cornerRadius = 12
         // Update the corner masking based on dock position
         switch currentDockPosition {
@@ -213,9 +213,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Add blur view to background
         backgroundView.addSubview(blurView)
-        
-        // Remove border completely
-        backgroundView.layer?.borderWidth = 0
         
         // Create stack view with proper sizing and distribution
         let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
@@ -728,7 +725,7 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         let newX: CGFloat
         switch newPosition {
         case .left:
-            newX = screen.visibleFrame.minX - shadowOffset  // Add negative offset for left side
+            newX = screen.visibleFrame.minX - shadowOffset
         case .center:
             newX = (screen.visibleFrame.width - runningAppsWindow.frame.width) / 2
         case .right:
@@ -742,6 +739,9 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         
         // Move window
         runningAppsWindow.setFrameOrigin(NSPoint(x: newX, y: runningAppsWindow.frame.minY))
+        
+        // Force UI update to refresh corner masking
+        updateRunningApps()
     }
 }
 
