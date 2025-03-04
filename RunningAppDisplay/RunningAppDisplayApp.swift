@@ -14,7 +14,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var workspaceNotificationObserver: Any?
     var appearanceObserver: Any?
     var terminationObserver: Any?
+    var leftHandle: EdgeHandleView?
+    var rightHandle: EdgeHandleView?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
+    var currentDockPosition: DockPosition = .right // Add this to track position
     var currentIconSize: CGFloat = UserDefaults.standard.float(forKey: "iconSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "iconSize")) : 48
     
     static func main() {
@@ -195,7 +198,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Simple top left corner radius
         blurView.layer?.cornerRadius = 12
-        blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // TOP LEFT
+        // Update the corner masking based on dock position
+        switch currentDockPosition {
+        case .left:
+            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]  // TOP RIGHT
+        case .center:
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]  // TOP LEFT AND RIGHT
+        case .right:
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // TOP LEFT
+        }
         
         // Adjust transparency
         blurView.alphaValue = 0.7  // More transparent to better match dock
@@ -219,9 +230,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Position window - SIMPLE, BOTTOM RIGHT, FLUSH
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let shadowOffset: CGFloat = 15  // Back to a simple, single offset
-        let xPosition = screen.visibleFrame.maxX - totalWidth + shadowOffset  // Push right
-        let yPosition = screen.visibleFrame.minY - shadowOffset  // Push down
+        let xPosition: CGFloat
         
+        switch currentDockPosition {
+        case .left:
+            xPosition = screen.visibleFrame.minX
+        case .center:
+            xPosition = (screen.visibleFrame.width - totalWidth) / 2
+        case .right:
+            xPosition = screen.visibleFrame.maxX - totalWidth + shadowOffset
+        }
+        
+        let yPosition = screen.visibleFrame.minY - shadowOffset
         runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         
         // Set up view hierarchy
@@ -303,12 +323,27 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             }
         }
         
-        // Add edge handles
-        let leftHandle = EdgeHandleView(frame: NSRect(x: 0, y: shadowPadding, width: 20, height: contentHeight), isLeft: true)
-        let rightHandle = EdgeHandleView(frame: NSRect(x: contentWidth - 20, y: shadowPadding, width: 20, height: contentHeight), isLeft: false)
+        // Add edge handles with current position
+        leftHandle = EdgeHandleView(frame: NSRect(x: shadowPadding, 
+                                                y: shadowPadding,
+                                                width: 20,
+                                                height: contentHeight - resizeHandleHeight),
+                                   isLeft: true)
+        leftHandle?.currentPosition = currentDockPosition
+        leftHandle?.delegate = self
 
-        containerView.addSubview(leftHandle)
-        containerView.addSubview(rightHandle)
+        rightHandle = EdgeHandleView(frame: NSRect(x: shadowPadding + contentWidth - 20,
+                                                 y: shadowPadding,
+                                                 width: 20,
+                                                 height: contentHeight - resizeHandleHeight),
+                                    isLeft: false)
+        rightHandle?.currentPosition = currentDockPosition
+        rightHandle?.delegate = self
+
+        if let left = leftHandle, let right = rightHandle {
+            containerView.addSubview(left)
+            containerView.addSubview(right)
+        }
         
         runningAppsWindow.orderFront(nil)
     }
@@ -600,11 +635,22 @@ class ResizeHandleView: NSView {
     }
 }
 
-// Add this class at the top level
+enum DockPosition {
+    case left
+    case center
+    case right
+}
+
+protocol EdgeHandleDelegate: AnyObject {
+    func handleEdgeDrag(fromLeftEdge: Bool, currentPosition: DockPosition)
+}
+
 class EdgeHandleView: NSView {
+    weak var delegate: EdgeHandleDelegate?
     private var isDragging = false
     private var startX: CGFloat = 0
     private let isLeftHandle: Bool
+    var currentPosition: DockPosition = .right  // Start at right by default
     
     init(frame: NSRect, isLeft: Bool) {
         self.isLeftHandle = isLeft
@@ -642,18 +688,59 @@ class EdgeHandleView: NSView {
         let currentX = NSEvent.mouseLocation.x
         let deltaX = currentX - startX
         
-        // Log once per drag direction
         if (isLeftHandle && deltaX < -10) {
-            print("Dragging LEFT edge: \(deltaX)px")
-            isDragging = false  // Stop after first detection
+            print("Moving dock LEFT from \(currentPosition)")
+            delegate?.handleEdgeDrag(fromLeftEdge: true, currentPosition: currentPosition)
+            isDragging = false
         } else if (!isLeftHandle && deltaX > 10) {
-            print("Dragging RIGHT edge: \(deltaX)px")
-            isDragging = false  // Stop after first detection
+            print("Moving dock RIGHT from \(currentPosition)")
+            delegate?.handleEdgeDrag(fromLeftEdge: false, currentPosition: currentPosition)
+            isDragging = false
         }
     }
     
     override func mouseUp(with event: NSEvent) {
         isDragging = false
+    }
+}
+
+extension RunningAppDisplayApp: EdgeHandleDelegate {
+    func handleEdgeDrag(fromLeftEdge: Bool, currentPosition: DockPosition) {
+        guard let screen = NSScreen.main else { return }
+        
+        let newPosition: DockPosition
+        
+        if fromLeftEdge {
+            newPosition = switch currentPosition {
+                case .right: .center
+                case .center: .left
+                case .left: .left
+            }
+        } else {
+            newPosition = switch currentPosition {
+                case .left: .center
+                case .center: .right
+                case .right: .right
+            }
+        }
+        
+        let newX: CGFloat
+        switch newPosition {
+        case .left:
+            newX = screen.visibleFrame.minX
+        case .center:
+            newX = (screen.visibleFrame.width - runningAppsWindow.frame.width) / 2
+        case .right:
+            newX = screen.visibleFrame.maxX - runningAppsWindow.frame.width
+        }
+        
+        // Update position state
+        currentDockPosition = newPosition
+        leftHandle?.currentPosition = newPosition
+        rightHandle?.currentPosition = newPosition
+        
+        // Move window
+        runningAppsWindow.setFrameOrigin(NSPoint(x: newX, y: runningAppsWindow.frame.minY))
     }
 }
 
