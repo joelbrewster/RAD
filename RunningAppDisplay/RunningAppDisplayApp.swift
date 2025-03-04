@@ -736,6 +736,20 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         rightHandle?.currentPosition = newPosition
         UserDefaults.standard.set(newPosition.rawValue, forKey: "dockPosition")
         
+        // Calculate new window position
+        let shadowOffset: CGFloat = 15
+        let newX: CGFloat = switch newPosition {
+        case .left:
+            screen.visibleFrame.minX - shadowOffset
+        case .center:
+            (screen.visibleFrame.width - runningAppsWindow.frame.width) / 2
+        case .right:
+            screen.visibleFrame.maxX - runningAppsWindow.frame.width + shadowOffset
+        }
+        
+        // Update window position before rebuild
+        runningAppsWindow.setFrameOrigin(NSPoint(x: newX, y: runningAppsWindow.frame.minY))
+        
         // Clear all content and force complete rebuild
         if let contentView = runningAppsWindow.contentView {
             contentView.subviews.forEach { $0.removeFromSuperview() }
