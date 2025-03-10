@@ -78,11 +78,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.level = .statusBar
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
-        runningAppsWindow.hasShadow = true    // Enable shadow for dock-like appearance
+        runningAppsWindow.hasShadow = false
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient]
-        runningAppsWindow.alphaValue = 1.0  // Keep window fully opaque
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .transient]
+        runningAppsWindow.isMovableByWindowBackground = false
+        runningAppsWindow.alphaValue = 1.0
         
         // Initialize with current running apps
         let runningApps = workspace.runningApplications.filter { 
