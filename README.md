@@ -11,6 +11,7 @@
 ## System Integration: 
   - Adapts to Light/Dark mode
   - Spans across all desktop spaces
+  - Works best with System Settings > Motion > "Reduce motion" disabled
 
 ## Interactive Elements:
   - Click to switch to an app
