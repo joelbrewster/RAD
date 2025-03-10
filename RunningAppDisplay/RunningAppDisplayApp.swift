@@ -158,16 +158,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let spacing: CGFloat = 6
         let horizontalPadding: CGFloat = 6
         let verticalPadding: CGFloat = 6
-        let shadowPadding: CGFloat = 15
+        let shadowPadding: CGFloat = 0  // FORCE ZERO
         
         // Add resize handle height
         let resizeHandleHeight: CGFloat = 8
         
-        // Adjust content height to include resize handle
+        // Calculate exact sizes with NO extra space
         let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
         let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2) + resizeHandleHeight
-        let totalWidth = contentWidth + (shadowPadding * 2)
-        let totalHeight = contentHeight + (shadowPadding * 2)
+        let totalWidth = contentWidth  // NO EXTRA PADDING
+        let totalHeight = contentHeight  // NO EXTRA PADDING
         
         // Create container view with extra space for shadow
         let containerView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
@@ -189,12 +189,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
-        blurView.blendingMode = .withinWindow
+        blurView.blendingMode = .behindWindow
         blurView.state = .active
-        blurView.material = .hudWindow  // Changed to hudWindow for better color match
+        blurView.material = .hudWindow  // This matches menubar better
+        blurView.alphaValue = 0.8
         blurView.wantsLayer = true
         blurView.isEmphasized = true
-
+        
         // Match system appearance
         blurView.appearance = NSApp.effectiveAppearance
 
@@ -233,22 +234,27 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         stackView.alignment = .centerY
         stackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         
-        // Position window - SIMPLE, BOTTOM RIGHT, FLUSH
+        // Force exact positioning
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let shadowOffset: CGFloat = 15  // Back to a simple, single offset
-        let xPosition: CGFloat
-        
-        switch currentDockPosition {
+        let xPosition: CGFloat = switch currentDockPosition {
         case .left:
-            xPosition = screen.visibleFrame.minX - shadowOffset  // Add negative offset for left side
+            screen.visibleFrame.minX
         case .center:
-            xPosition = (screen.visibleFrame.width - totalWidth) / 2
+            (screen.visibleFrame.width - totalWidth) / 2
         case .right:
-            xPosition = screen.visibleFrame.maxX - totalWidth + shadowOffset
+            screen.visibleFrame.maxX - totalWidth
         }
         
-        let yPosition = screen.visibleFrame.minY - shadowOffset
-        runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
+        // FORCE BOTTOM ALIGNMENT
+        let yPosition = screen.visibleFrame.minY
+        runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true, animate: false)
+        
+        // KILL ALL SHADOWS
+        runningAppsWindow.hasShadow = false
+        containerView.wantsLayer = true
+        containerView.layer?.shadowOpacity = 0
+        containerView.layer?.shadowRadius = 0
+        containerView.layer?.shadowOffset = .zero
         
         // Set up view hierarchy
         backgroundView.addSubview(stackView)
@@ -256,7 +262,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.contentView = containerView
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
-        // runningApps.hasShadow = false
         
         // Ensure container view is above blur and fully opaque
         containerView.layer?.zPosition = 1
@@ -737,7 +742,7 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         UserDefaults.standard.set(newPosition.rawValue, forKey: "dockPosition")
         
         // Calculate new window position
-        let shadowOffset: CGFloat = 15
+        let shadowOffset: CGFloat = 0
         let newX: CGFloat = switch newPosition {
         case .left:
             screen.visibleFrame.minX - shadowOffset
