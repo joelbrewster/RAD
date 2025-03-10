@@ -551,7 +551,19 @@ extension RunningAppDisplayApp: ResizeHandleDelegate {
         if abs(currentIconSize - clampedSize) > 0.5 {
             currentIconSize = clampedSize
             UserDefaults.standard.set(Float(clampedSize), forKey: "iconSize")
+            
+            // Force window to stay interactive
+            runningAppsWindow.ignoresMouseEvents = false
+            runningAppsWindow.acceptsMouseMovedEvents = true
+            
+            // Force immediate update
             updateRunningApps()
+            
+            // Ensure window stays interactive after update
+            DispatchQueue.main.async {
+                self.runningAppsWindow.ignoresMouseEvents = false
+                self.runningAppsWindow.acceptsMouseMovedEvents = true
+            }
         }
     }
 }
