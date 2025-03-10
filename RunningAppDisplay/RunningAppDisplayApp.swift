@@ -235,20 +235,20 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         stackView.alignment = .centerY
         stackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         
-        // Force exact positioning
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        let xPosition: CGFloat = switch currentDockPosition {
-        case .left:
-            screen.visibleFrame.minX
-        case .center:
-            (screen.visibleFrame.width - totalWidth) / 2
-        case .right:
-            screen.visibleFrame.maxX - totalWidth
+        // FORCE MAIN SCREEN ONLY - IGNORE ACTIVE SCREEN
+        if let mainScreen = NSScreen.screens.first {  // Use first screen instead of .main
+            let xPosition: CGFloat = switch currentDockPosition {
+            case .left:
+                mainScreen.visibleFrame.minX
+            case .center:
+                (mainScreen.visibleFrame.width - totalWidth) / 2 + mainScreen.visibleFrame.minX
+            case .right:
+                mainScreen.visibleFrame.maxX - totalWidth
+            }
+            
+            let yPosition = mainScreen.visibleFrame.minY
+            runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         }
-        
-        // FORCE BOTTOM ALIGNMENT
-        let yPosition = screen.visibleFrame.minY
-        runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true, animate: false)
         
         // KILL ALL SHADOWS
         runningAppsWindow.hasShadow = false
