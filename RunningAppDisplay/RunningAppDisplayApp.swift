@@ -274,64 +274,52 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add app icons
         for app in runningApps {
             if let appIcon = app.icon {
-                let baseIconSize = max(currentIconSize * 1.5, 36)
-                appIcon.size = NSSize(width: baseIconSize, height: baseIconSize)
+                appIcon.size = NSSize(width: currentIconSize, height: currentIconSize)
                 
+                // Make all icons grayscale by default
+                let finalIcon: NSImage
                 if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                     let ciImage = CIImage(cgImage: cgImage)
-                    let finalIcon: NSImage
+                    let filter = CIFilter(name: "CIColorMonochrome")!
+                    filter.setValue(ciImage, forKey: kCIInputImageKey)
+                    filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
+                    filter.setValue(1.0, forKey: kCIInputIntensityKey)
                     
-                    // Check if this is the active app
-                    if app == runningApps.first {
-                        finalIcon = NSImage(cgImage: cgImage, size: iconSize)
-                    } else {
-                        // Apply filter to non-active apps
-                        if let filter = CIFilter(name: "CIColorControls") {
-                            filter.setValue(ciImage, forKey: kCIInputImageKey)
-                            filter.setValue(0.75, forKey: kCIInputSaturationKey)
-                            
-                            let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                            if isDarkMode {
-                                filter.setValue(1.4, forKey: kCIInputContrastKey)
-                                filter.setValue(0.2, forKey: kCIInputBrightnessKey)
-                            } else {
-                                filter.setValue(1.2, forKey: kCIInputContrastKey)
-                                filter.setValue(0.1, forKey: kCIInputBrightnessKey)
-                            }
-                            
-                            if let outputImage = filter.outputImage,
-                               let context = CIContext(options: nil).createCGImage(outputImage, from: outputImage.extent) {
-                                finalIcon = NSImage(cgImage: context, size: iconSize)
-                            } else {
-                                finalIcon = NSImage(cgImage: cgImage, size: iconSize)
-                            }
+                    if let output = filter.outputImage {
+                        let context = CIContext(options: nil)
+                        if let cgOutput = context.createCGImage(output, from: output.extent) {
+                            finalIcon = NSImage(cgImage: cgOutput, size: NSSize(width: currentIconSize, height: currentIconSize))
                         } else {
-                            finalIcon = NSImage(cgImage: cgImage, size: iconSize)
+                            finalIcon = appIcon
                         }
+                    } else {
+                        finalIcon = appIcon
                     }
-                    
-                    // Create fixed-size container
-                    let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                    containerView.wantsLayer = true
-                    
-                    let imageView = ClickableImageView(frame: containerView.bounds)
-                    imageView.imageScaling = .scaleProportionallyDown
-                    imageView.image = finalIcon
-                    imageView.wantsLayer = true
-                    imageView.layer?.masksToBounds = true
-                    imageView.tag = Int(app.processIdentifier)
-                    
-                    // Set opacity for hidden apps
-                    imageView.alphaValue = app.isHidden ? 0.5 : 1.0
-                    
-                    // Center image in container
-                    containerView.addSubview(imageView)
-                    
-                    // Add fixed-width constraint to container
-                    containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
-                    
-                    stackView.addArrangedSubview(containerView)
+                } else {
+                    finalIcon = appIcon
                 }
+                
+                // Create fixed-size container
+                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                containerView.wantsLayer = true
+                
+                let imageView = ClickableImageView(frame: containerView.bounds)
+                imageView.imageScaling = .scaleProportionallyDown
+                imageView.image = finalIcon
+                imageView.wantsLayer = true
+                imageView.layer?.masksToBounds = true
+                imageView.tag = Int(app.processIdentifier)
+                
+                // Set opacity for hidden apps
+                imageView.alphaValue = app.isHidden ? 0.5 : 1.0
+                
+                // Center image in container
+                containerView.addSubview(imageView)
+                
+                // Add fixed-width constraint to container
+                containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
+                
+                stackView.addArrangedSubview(containerView)
             }
         }
         
@@ -463,27 +451,24 @@ class ClickableImageView: NSImageView {
         popover?.close()
         popover = nil
         
-        // Restore the desaturated state if it's not the active app
+        // Restore the grayscale state if it's not the active app
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
            app != NSWorkspace.shared.frontmostApplication,
-           let cgImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            let ciImage = CIImage(cgImage: cgImage)
-            if let filter = CIFilter(name: "CIColorControls") {
+           let appIcon = app.icon {
+            appIcon.size = self.bounds.size
+            
+            if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                let ciImage = CIImage(cgImage: cgImage)
+                let filter = CIFilter(name: "CIColorMonochrome")!
                 filter.setValue(ciImage, forKey: kCIInputImageKey)
-                filter.setValue(0.75, forKey: kCIInputSaturationKey) // Remove color again
+                filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
+                filter.setValue(1.0, forKey: kCIInputIntensityKey)
                 
-                let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                if isDarkMode {
-                    filter.setValue(1.4, forKey: kCIInputContrastKey)
-                    filter.setValue(0.2, forKey: kCIInputBrightnessKey)
-                } else {
-                    filter.setValue(1.2, forKey: kCIInputContrastKey)
-                    filter.setValue(0.1, forKey: kCIInputBrightnessKey)
-                }
-                
-                if let outputImage = filter.outputImage,
-                   let context = CIContext(options: nil).createCGImage(outputImage, from: outputImage.extent) {
-                    self.image = NSImage(cgImage: context, size: self.bounds.size)
+                if let output = filter.outputImage {
+                    let context = CIContext(options: nil)
+                    if let cgOutput = context.createCGImage(output, from: output.extent) {
+                        self.image = NSImage(cgImage: cgOutput, size: self.bounds.size)
+                    }
                 }
             }
         }
