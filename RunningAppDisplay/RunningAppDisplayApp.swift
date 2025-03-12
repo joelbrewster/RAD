@@ -428,13 +428,12 @@ class ClickableImageView: NSImageView {
         isMouseInside = true
         lastMouseMovement = Date()
         
-        // Recolor the icon if it's not the active app
+        // Show original colored icon on hover for all apps
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
-           app != NSWorkspace.shared.frontmostApplication,
            let appIcon = app.icon {
             appIcon.size = bounds.size
             DispatchQueue.main.async {
-                self.image = appIcon  // Just use the original icon, no filter
+                self.image = appIcon
             }
         }
 
@@ -451,9 +450,8 @@ class ClickableImageView: NSImageView {
         popover?.close()
         popover = nil
         
-        // Restore the grayscale state if it's not the active app
+        // Return to grayscale for all apps
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
-           app != NSWorkspace.shared.frontmostApplication,
            let appIcon = app.icon {
             appIcon.size = self.bounds.size
             
