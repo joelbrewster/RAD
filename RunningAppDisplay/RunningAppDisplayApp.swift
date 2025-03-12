@@ -428,18 +428,14 @@ class ClickableImageView: NSImageView {
         isMouseInside = true
         lastMouseMovement = Date()
         
-        // Show original colored icon on hover for all apps
+        // Show original colored icon and tooltip immediately
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
            let appIcon = app.icon {
             appIcon.size = bounds.size
             DispatchQueue.main.async {
                 self.image = appIcon
+                self.showTooltipIfNeeded()  // Show tooltip immediately
             }
-        }
-
-        tooltipTimer?.invalidate()
-        tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            self?.showTooltipIfNeeded()
         }
     }
     
