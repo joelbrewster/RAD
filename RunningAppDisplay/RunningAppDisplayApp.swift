@@ -523,7 +523,7 @@ extension RunningAppDisplayApp: ResizeHandleDelegate {
     func handleResize(newSize: CGFloat) {
         let screenHeight = NSScreen.main?.frame.height ?? 1000
         let maxIconSize: CGFloat = screenHeight / 3
-        let minIconSize: CGFloat = 24
+        let minIconSize: CGFloat = 33
         
         let clampedSize = min(max(newSize, minIconSize), maxIconSize)
         
