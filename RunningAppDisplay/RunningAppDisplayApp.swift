@@ -369,8 +369,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 class ClickableImageView: NSImageView {
     private var popover: NSPopover?
     private var isMouseInside = false
-    private var lastMouseMovement: Date?
-    private var tooltipTimer: Timer?
     
     override var acceptsFirstResponder: Bool { return true }
     
@@ -386,22 +384,17 @@ class ClickableImageView: NSImageView {
     }
     
     override func mouseMoved(with event: NSEvent) {
-        lastMouseMovement = Date()
-        tooltipTimer?.invalidate()
-        
-        tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-            self?.showTooltipIfNeeded()
+        if isMouseInside {
+            showTooltipIfNeeded()
         }
     }
     
     private func showTooltipIfNeeded() {
         guard isMouseInside,
               let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
-              window != nil  // Add this check
+              window != nil,
+              popover == nil  // Only show if not already showing
               else { return }
-        
-        // Close existing popover if any
-        popover?.close()
         
         let popover = NSPopover()
         popover.behavior = .semitransient
@@ -430,23 +423,18 @@ class ClickableImageView: NSImageView {
     
     override func mouseEntered(with event: NSEvent) {
         isMouseInside = true
-        lastMouseMovement = Date()
         
         // Show original colored icon and tooltip immediately
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
            let appIcon = app.icon {
             appIcon.size = bounds.size
-            DispatchQueue.main.async {
-                self.image = appIcon
-                self.showTooltipIfNeeded()  // Show tooltip immediately
-            }
+            self.image = appIcon
+            showTooltipIfNeeded()
         }
     }
     
     override func mouseExited(with event: NSEvent) {
         isMouseInside = false
-        tooltipTimer?.invalidate()
-        tooltipTimer = nil
         popover?.close()
         popover = nil
         
