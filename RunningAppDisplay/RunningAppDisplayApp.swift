@@ -30,7 +30,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let app = NSApplication.shared
         let delegate = RunningAppDisplayApp()
         app.delegate = delegate
-        app.setActivationPolicy(.accessory)
+        app.setActivationPolicy(.prohibited)
         app.run()
     }
     
@@ -75,7 +75,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         )
         
         // Update window setup
-        runningAppsWindow.level = .submenu  // Changed from .statusBar (default) to .submenu for testing lower window level
+        runningAppsWindow.level = .submenu
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
