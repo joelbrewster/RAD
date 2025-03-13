@@ -75,7 +75,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         )
         
         // Update window setup
-        runningAppsWindow.level = .statusBar
+        runningAppsWindow.level = .submenu  // Changed from .statusBar (default) to .submenu for testing lower window level
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
