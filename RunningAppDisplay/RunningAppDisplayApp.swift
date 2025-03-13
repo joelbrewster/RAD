@@ -276,19 +276,23 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             if let appIcon = app.icon {
                 appIcon.size = NSSize(width: currentIconSize, height: currentIconSize)
                 
-                // Make all icons grayscale by default
+                // Only make hidden apps grayscale
                 let finalIcon: NSImage
-                if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    let ciImage = CIImage(cgImage: cgImage)
-                    let filter = CIFilter(name: "CIColorMonochrome")!
-                    filter.setValue(ciImage, forKey: kCIInputImageKey)
-                    filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
-                    filter.setValue(1.0, forKey: kCIInputIntensityKey)
-                    
-                    if let output = filter.outputImage {
-                        let context = CIContext(options: nil)
-                        if let cgOutput = context.createCGImage(output, from: output.extent) {
-                            finalIcon = NSImage(cgImage: cgOutput, size: NSSize(width: currentIconSize, height: currentIconSize))
+                if app.isHidden {
+                    if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        let ciImage = CIImage(cgImage: cgImage)
+                        let filter = CIFilter(name: "CIColorMonochrome")!
+                        filter.setValue(ciImage, forKey: kCIInputImageKey)
+                        filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
+                        filter.setValue(1.0, forKey: kCIInputIntensityKey)
+                        
+                        if let output = filter.outputImage {
+                            let context = CIContext(options: nil)
+                            if let cgOutput = context.createCGImage(output, from: output.extent) {
+                                finalIcon = NSImage(cgImage: cgOutput, size: NSSize(width: currentIconSize, height: currentIconSize))
+                            } else {
+                                finalIcon = appIcon
+                            }
                         } else {
                             finalIcon = appIcon
                         }
@@ -310,8 +314,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 imageView.layer?.masksToBounds = true
                 imageView.tag = Int(app.processIdentifier)
                 
-                // Set opacity for hidden apps
-                imageView.alphaValue = app.isHidden ? 0.5 : 1.0
+                // Remove opacity change for hidden apps
+                imageView.alphaValue = 1.0  // Always fully visible
                 
                 // Center image in container
                 containerView.addSubview(imageView)
@@ -446,23 +450,32 @@ class ClickableImageView: NSImageView {
         popover?.close()
         popover = nil
         
-        // Return to grayscale for all apps
-        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
-           let appIcon = app.icon {
-            appIcon.size = self.bounds.size
-            
-            if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                let ciImage = CIImage(cgImage: cgImage)
-                let filter = CIFilter(name: "CIColorMonochrome")!
-                filter.setValue(ciImage, forKey: kCIInputImageKey)
-                filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
-                filter.setValue(1.0, forKey: kCIInputIntensityKey)
-                
-                if let output = filter.outputImage {
-                    let context = CIContext(options: nil)
-                    if let cgOutput = context.createCGImage(output, from: output.extent) {
-                        self.image = NSImage(cgImage: cgOutput, size: self.bounds.size)
+        // Only return to grayscale if app is hidden
+        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
+            if app.isHidden {
+                if let appIcon = app.icon {
+                    appIcon.size = self.bounds.size
+                    
+                    if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        let ciImage = CIImage(cgImage: cgImage)
+                        let filter = CIFilter(name: "CIColorMonochrome")!
+                        filter.setValue(ciImage, forKey: kCIInputImageKey)
+                        filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
+                        filter.setValue(1.0, forKey: kCIInputIntensityKey)
+                        
+                        if let output = filter.outputImage {
+                            let context = CIContext(options: nil)
+                            if let cgOutput = context.createCGImage(output, from: output.extent) {
+                                self.image = NSImage(cgImage: cgOutput, size: self.bounds.size)
+                            }
+                        }
                     }
+                }
+            } else {
+                // Non-hidden apps keep their original icon
+                if let appIcon = app.icon {
+                    appIcon.size = self.bounds.size
+                    self.image = appIcon
                 }
             }
         }
