@@ -84,7 +84,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.hasShadow = false
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         runningAppsWindow.isMovableByWindowBackground = false
         runningAppsWindow.alphaValue = 1.0
         
@@ -141,6 +141,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func updateRunningApps() {
+        // Set critical window properties first
+        runningAppsWindow.level = .popUpMenu
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        runningAppsWindow.ignoresMouseEvents = false
+        runningAppsWindow.acceptsMouseMovedEvents = true
+        runningAppsWindow.hasShadow = false
+        runningAppsWindow.isOpaque = false
+        runningAppsWindow.backgroundColor = .clear
+
         let workspace = NSWorkspace.shared
         var runningApps = workspace.runningApplications.filter { 
             $0.activationPolicy == .regular && 
@@ -254,7 +263,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         
         // KILL ALL SHADOWS
-        runningAppsWindow.hasShadow = false
         containerView.wantsLayer = true
         containerView.layer?.shadowOpacity = 0
         containerView.layer?.shadowRadius = 0
@@ -264,8 +272,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         backgroundView.addSubview(stackView)
         containerView.addSubview(backgroundView)
         runningAppsWindow.contentView = containerView
-        runningAppsWindow.backgroundColor = .clear
-        runningAppsWindow.isOpaque = false
         
         // Ensure container view is above blur and fully opaque
         containerView.layer?.zPosition = 1
