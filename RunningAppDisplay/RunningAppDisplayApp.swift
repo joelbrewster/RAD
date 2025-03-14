@@ -84,7 +84,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.hasShadow = false
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
         runningAppsWindow.isMovableByWindowBackground = false
         runningAppsWindow.alphaValue = 1.0
         
