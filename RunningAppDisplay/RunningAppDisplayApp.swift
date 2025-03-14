@@ -84,7 +84,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.hasShadow = false
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
         runningAppsWindow.isMovableByWindowBackground = false
         runningAppsWindow.alphaValue = 1.0
         
@@ -143,7 +143,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     func updateRunningApps() {
         // Set critical window properties first
         runningAppsWindow.level = .popUpMenu
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
         runningAppsWindow.hasShadow = false
