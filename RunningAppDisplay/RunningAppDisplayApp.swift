@@ -30,7 +30,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let app = NSApplication.shared
         let delegate = RunningAppDisplayApp()
         app.delegate = delegate
-        app.setActivationPolicy(.prohibited)
+        app.setActivationPolicy(.accessory)  // Use .accessory instead of .prohibited
+        
+        // Hide from Command-Tab switcher
+        NSWindow.allowsAutomaticWindowTabbing = false
         app.run()
     }
     
@@ -75,13 +78,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         )
         
         // Update window setup
-        runningAppsWindow.level = .submenu
+        runningAppsWindow.level = .popUpMenu 
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .transient]
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         runningAppsWindow.isMovableByWindowBackground = false
         runningAppsWindow.alphaValue = 1.0
         
