@@ -294,7 +294,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
-        let spacing: CGFloat = 8  // Spacing between icons
+        let spacing: CGFloat = 4  // Spacing between icons
         let groupSpacing: CGFloat = 8  // Space between workspace groups
         let horizontalPadding: CGFloat = 8  // Edge padding
         let verticalPadding: CGFloat = 4  // Vertical padding
@@ -314,7 +314,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         blurView.blendingMode = NSVisualEffectView.BlendingMode.behindWindow
         blurView.state = NSVisualEffectView.State.active
         blurView.material = NSVisualEffectView.Material.hudWindow
-        blurView.alphaValue = 0.7
+        blurView.alphaValue = 1
         blurView.wantsLayer = true
         blurView.isEmphasized = true
         blurView.appearance = NSApp.effectiveAppearance
@@ -377,7 +377,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
             workspaceContainer.spacing = 4
-            workspaceContainer.distribution = .gravityAreas
+            workspaceContainer.distribution = .fill
             workspaceContainer.alignment = .centerY
             
             // Just wrap the container in a visual style
@@ -403,7 +403,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             ])
             
             // Add workspace label with updated style for active state
-            let label = NSTextField(frame: NSRect(x: 0, y: 0, width: 16, height: 18))
+            let label = NSTextField(frame: .zero)
             label.stringValue = group.workspace
             label.isEditable = false
             label.isBordered = false
@@ -411,13 +411,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             label.textColor = isActive ? .labelColor : .secondaryLabelColor
             label.font = NSFont.monospacedSystemFont(ofSize: 16, weight: isActive ? .bold : .semibold)
             label.alignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                label.widthAnchor.constraint(equalToConstant: 24)
+            ])
             workspaceContainer.addArrangedSubview(label)
             
             // Create stack view for this group's icons with proper constraints
             let groupStack = NSStackView(frame: .zero)
             groupStack.orientation = .horizontal
             groupStack.spacing = spacing
-            groupStack.distribution = .gravityAreas
+            groupStack.distribution = .fillEqually
             groupStack.alignment = .centerY
             workspaceContainer.addArrangedSubview(groupStack)
             
