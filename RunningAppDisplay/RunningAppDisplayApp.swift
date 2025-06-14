@@ -32,7 +32,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }()
     let currentIconSize: CGFloat = 48  // Fixed size at 48px
     let horizontalPadding: CGFloat = 8  // Edge padding
-    let verticalPadding: CGFloat = 4  // Vertical padding
+    let verticalPadding: CGFloat = 8  // Vertical padding
     let groupSpacing: CGFloat = 8  // Space between workspace groups
     let shadowPadding: CGFloat = 0  // Shadow padding
     
@@ -381,7 +381,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         for group in groups {
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
-            workspaceContainer.spacing = 4
+            workspaceContainer.spacing = 2
             workspaceContainer.distribution = .fill
             workspaceContainer.alignment = .centerY
             
@@ -436,7 +436,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Create stack view for this group's icons with proper constraints
             let groupStack = NSStackView(frame: .zero)
             groupStack.orientation = .horizontal
-            groupStack.spacing = spacing
+            groupStack.spacing = 2
             groupStack.distribution = .fillEqually
             groupStack.alignment = .centerY
             workspaceContainer.addArrangedSubview(groupStack)
