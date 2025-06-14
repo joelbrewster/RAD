@@ -17,6 +17,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var leftHandle: EdgeHandleView?
     var rightHandle: EdgeHandleView?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
+    var updateWorkDebounceTimer: Timer?
+    var isUpdating: Bool = false
     var currentDockPosition: DockPosition = {
         if let savedPosition = UserDefaults.standard.string(forKey: "dockPosition"),
            let position = DockPosition(rawValue: savedPosition) {
@@ -25,6 +27,43 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         return .center  // Default to center
     }()
     var currentIconSize: CGFloat = UserDefaults.standard.float(forKey: "iconSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "iconSize")) : 48
+    
+    // Add property at top of class
+    private var needsFollowUpUpdate = false
+    
+    // Add properties at top of class
+    private var workspaceCache: [WorkspaceGroup]?
+    private var workspaceCacheTimestamp: Date?
+    private let workspaceCacheLifetime: TimeInterval = 0.5 // Cache valid for 0.5 seconds
+    
+    // Add property at top of class
+    private var windowObservers: [NSObjectProtocol] = []
+    
+    // Add property at top of class
+    private var lastWindowUpdateTime: Date = Date()
+    private let minimumWindowUpdateInterval: TimeInterval = 0.3
+    
+    // Add properties at top of class
+    private var updateSource: UpdateSource = .none
+    private var pendingUpdateSource: UpdateSource = .none
+    
+    fileprivate enum UpdateSource {
+        case none
+        case spaceChange
+        case windowMove
+        case windowOrder
+        case appChange
+        
+        var priority: Int {
+            switch self {
+            case .none: return 0
+            case .windowOrder: return 1
+            case .appChange: return 2
+            case .windowMove: return 3
+            case .spaceChange: return 4
+            }
+        }
+    }
     
     static func main() {
         let app = NSApplication.shared
@@ -66,8 +105,45 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: nil) { [weak self] notification in
-                self?.updateRunningApps()
+                self?.debouncedUpdateRunningApps(source: .appChange)
         }
+        
+        // Add observers for workspace changes
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: nil) { [weak self] _ in
+                print("Active space changed")
+                self?.debouncedUpdateRunningApps(source: .spaceChange)
+        }
+        
+        // Add observers for window changes using NSNotificationCenter.default
+        let center = NotificationCenter.default
+        
+        // Store window observers to remove them later
+        windowObservers = [
+            // Window movement between spaces/screens
+            center.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: nil) { [weak self] _ in 
+                print("Window moved to different screen")
+                self?.debouncedUpdateRunningApps(source: .windowMove)
+            },
+            
+            // Window ordering changes
+            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: nil) { [weak self] _ in 
+                print("Window ordering changed")
+                self?.debouncedUpdateRunningApps(source: .windowOrder)
+            },
+            
+            // Window minimizing/unminimizing
+            center.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: nil) { [weak self] _ in 
+                print("Window minimized")
+                self?.debouncedUpdateRunningApps(source: .windowOrder)
+            },
+            center.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: nil) { [weak self] _ in 
+                print("Window unminimized")
+                self?.debouncedUpdateRunningApps(source: .windowOrder)
+            }
+        ]
         
         // Create floating window for running apps with larger height
         runningAppsWindow = NSWindow(
@@ -114,11 +190,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         
         // Initial UI update
-        updateRunningApps()
+        debouncedUpdateRunningApps()
         
         // Add appearance change observer
         appearanceObserver = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
-            self?.updateRunningApps()  // Refresh UI when appearance changes
+            self?.debouncedUpdateRunningApps()  // Refresh UI when appearance changes
         }
     }
     
@@ -137,10 +213,66 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // For non-active apps, put them after the active app
             recentAppOrder.insert(bundleID, at: 0)
         }
-        updateRunningApps()
+        debouncedUpdateRunningApps(source: .appChange)
+    }
+    
+    fileprivate func debouncedUpdateRunningApps(source: UpdateSource = .none) {
+        print("Debounce requested from source: \(source)")
+        
+        // If an update is in progress, only schedule follow-up if new source has higher priority
+        if isUpdating {
+            if source.priority > pendingUpdateSource.priority {
+                print("Update in progress, scheduling higher priority follow-up")
+                pendingUpdateSource = source
+                needsFollowUpUpdate = true
+            } else {
+                print("Update in progress, ignoring lower priority update")
+            }
+            return
+        }
+        
+        // Cancel any pending timer
+        updateWorkDebounceTimer?.invalidate()
+        
+        // Schedule new update
+        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+            print("Timer fired")
+            guard let self = self else { return }
+            
+            self.isUpdating = true
+            self.updateSource = source
+            
+            // Clear cache if it's too old or if this is a high-priority update
+            if let timestamp = self.workspaceCacheTimestamp,
+               (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
+                print("Cache invalidated due to time or priority")
+                self.workspaceCache = nil
+                self.workspaceCacheTimestamp = nil
+            }
+            
+            self.updateRunningApps()
+            
+            // Reset flags after a brief delay to ensure window updates are complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.isUpdating = false
+                self.updateSource = .none
+                
+                // If another update was requested while we were updating, process it
+                if self.needsFollowUpUpdate {
+                    print("Processing follow-up update with source: \(self.pendingUpdateSource)")
+                    self.needsFollowUpUpdate = false
+                    let nextSource = self.pendingUpdateSource
+                    self.pendingUpdateSource = .none
+                    self.debouncedUpdateRunningApps(source: nextSource)
+                }
+            }
+        }
     }
     
     func updateRunningApps() {
+        print("Starting updateRunningApps")
+        print("Current dock position: \(currentDockPosition)")
+        
         // Set critical window properties first
         runningAppsWindow.level = .popUpMenu
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
@@ -150,40 +282,39 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.isOpaque = false
         runningAppsWindow.backgroundColor = .clear
 
-        let workspace = NSWorkspace.shared
-        var runningApps = workspace.runningApplications.filter { 
-            $0.activationPolicy == .regular && 
-            $0.bundleIdentifier != Bundle.main.bundleIdentifier
-        }
+        // Get workspace groups
+        let groups = getWorkspaceGroups()
+        print("Got \(groups.count) workspace groups with \(groups.reduce(0) { $0 + $1.windows.count }) total windows")
         
-        // FORCE THE SORT ORDER - HIGHER INDEX = RIGHT SIDE
-        runningApps.sort { app1, app2 in
-            guard let id1 = app1.bundleIdentifier,
-                  let id2 = app2.bundleIdentifier else { return false }
-            
-            let index1 = recentAppOrder.firstIndex(of: id1) ?? Int.max
-            let index2 = recentAppOrder.firstIndex(of: id2) ?? Int.max
-            
-            return index1 > index2  // This makes higher indexes go RIGHT
-        }
-        
-        let iconSize = NSSize(width: currentIconSize, height: currentIconSize)  // Use dynamic size
+        // Calculate dimensions
+        let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
         let spacing: CGFloat = 6
+        let groupSpacing: CGFloat = 20  // Space between workspace groups
         let horizontalPadding: CGFloat = 6
         let verticalPadding: CGFloat = 6
-        let shadowPadding: CGFloat = 0  // FORCE ZERO
-        
-        // Add resize handle height
+        let shadowPadding: CGFloat = 0
         let resizeHandleHeight: CGFloat = 8
         
-        // Calculate exact sizes with NO extra space
-        let contentWidth = CGFloat(runningApps.count) * (iconSize.width + spacing) - spacing + (horizontalPadding * 2)
-        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2) + resizeHandleHeight
-        let totalWidth = contentWidth  // NO EXTRA PADDING
-        let totalHeight = contentHeight  // NO EXTRA PADDING
+        // Calculate total number of windows and groups for sizing
+        let totalWindows = groups.reduce(0) { $0 + $1.windows.count }
+        let totalGroups = groups.count
         
-        // Create container view with extra space for shadow
+        print("Total windows across all groups: \(totalWindows)")
+        
+        // Calculate exact sizes
+        let contentWidth = CGFloat(totalWindows) * (iconSize.width + spacing) + 
+                         CGFloat(max(0, totalGroups - 1)) * (groupSpacing - spacing) +
+                         (horizontalPadding * 2) - spacing
+        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2) + resizeHandleHeight
+        let totalWidth = contentWidth
+        let totalHeight = contentHeight
+        
+        print("Window dimensions - Width: \(totalWidth), Height: \(totalHeight)")
+        
+        // Create container view
         let containerView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
+        containerView.wantsLayer = true
+        containerView.layer?.backgroundColor = NSColor.red.withAlphaComponent(0.3).cgColor // Debug tint
         
         // Create and add resize handle
         let resizeHandle = ResizeHandleView(frame: NSRect(x: shadowPadding, 
@@ -193,62 +324,100 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         resizeHandle.delegate = self
         containerView.addSubview(resizeHandle)
         
-        // Adjust background view position to account for resize handle
+        // Create background view
         let backgroundView = NSView(frame: NSRect(x: shadowPadding, 
                                                 y: shadowPadding,
                                                 width: contentWidth, 
                                                 height: contentHeight - resizeHandleHeight))
         backgroundView.wantsLayer = true
+        backgroundView.layer?.backgroundColor = NSColor.blue.withAlphaComponent(0.3).cgColor // Debug tint
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
         blurView.blendingMode = .behindWindow
         blurView.state = .active
-        blurView.material = .hudWindow  // This matches menubar better
+        blurView.material = .hudWindow
         blurView.alphaValue = 0.8
         blurView.wantsLayer = true
         blurView.isEmphasized = true
-        
-        // Match system appearance
         blurView.appearance = NSApp.effectiveAppearance
-
-        // Remove ALL border properties first
         blurView.layer?.borderWidth = 0
         blurView.layer?.borderColor = nil
-
-        // Simple top corner radius
         blurView.layer?.cornerRadius = 12
-        // First, clear all masked corners
         blurView.layer?.maskedCorners = []
         
-        // Then set only the corners we want
         switch currentDockPosition {
         case .left:
-            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]  // Only TOP RIGHT corner
+            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]
         case .center:
-            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]  // BOTH top corners
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         case .right:
-            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]  // Only TOP LEFT corner
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]
         }
-
-        // Adjust transparency
-        blurView.alphaValue = 0.7  // More transparent to better match dock
         
-        // Add blur view to background
+        blurView.alphaValue = 0.7
         backgroundView.addSubview(blurView)
         
-        // Create stack view with proper sizing and distribution
-        let stackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
-                                                width: contentWidth - (horizontalPadding * 2), 
-                                                height: iconSize.height))
-        stackView.orientation = .horizontal
-        stackView.spacing = spacing
-        stackView.distribution = .fillEqually  // Changed to fillEqually
-        stackView.alignment = .centerY
-        stackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        // Create stack view for all groups
+        let mainStackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
+                                                    width: contentWidth - (horizontalPadding * 2), 
+                                                    height: iconSize.height))
+        mainStackView.wantsLayer = true
+        mainStackView.layer?.backgroundColor = NSColor.green.withAlphaComponent(0.3).cgColor // Debug tint
+        mainStackView.orientation = .horizontal
+        mainStackView.spacing = groupSpacing
+        mainStackView.distribution = .fill
+        mainStackView.alignment = .centerY
+        mainStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         
-        // FORCE MAIN SCREEN ONLY - IGNORE ACTIVE SCREEN
-        if let mainScreen = NSScreen.screens.first {  // Use first screen instead of .main
+        // Add each workspace group
+        for group in groups {
+            // Create stack view for this group
+            let groupStack = NSStackView(frame: NSRect(x: 0, y: 0, 
+                                                     width: CGFloat(group.windows.count) * (iconSize.width + spacing) - spacing, 
+                                                     height: iconSize.height))
+            groupStack.orientation = .horizontal
+            groupStack.spacing = spacing
+            groupStack.distribution = .fillEqually
+            groupStack.alignment = .centerY
+            
+            // Add separator before group (except first group)
+            if let firstGroup = groups.first, group.workspace != firstGroup.workspace {
+                let separator = NSView(frame: NSRect(x: 0, y: 0, width: 2, height: iconSize.height * 0.8))
+                separator.wantsLayer = true
+                separator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.3).cgColor
+                separator.layer?.cornerRadius = 1
+                mainStackView.addArrangedSubview(separator)
+            }
+            
+            // Add apps for this group
+            for window in group.windows {
+                if let appIcon = window.appIcon {
+                    appIcon.size = NSSize(width: currentIconSize, height: currentIconSize)
+                    
+                    let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                    containerView.wantsLayer = true
+                    
+                    let imageView = ClickableImageView(frame: containerView.bounds)
+                    imageView.imageScaling = .scaleProportionallyDown
+                    imageView.image = appIcon
+                    imageView.wantsLayer = true
+                    imageView.layer?.masksToBounds = true
+                    imageView.tag = Int(window.pid)
+                    imageView.alphaValue = window.isHidden ? 0.5 : 1.0
+                    
+                    containerView.addSubview(imageView)
+                    containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
+                    
+                    groupStack.addArrangedSubview(containerView)
+                }
+            }
+            
+            mainStackView.addArrangedSubview(groupStack)
+        }
+        
+        // Position window
+        if let mainScreen = NSScreen.screens.first {
             let xPosition: CGFloat = switch currentDockPosition {
             case .left:
                 mainScreen.visibleFrame.minX
@@ -262,81 +431,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
         }
         
-        // KILL ALL SHADOWS
-        containerView.wantsLayer = true
-        containerView.layer?.shadowOpacity = 0
-        containerView.layer?.shadowRadius = 0
-        containerView.layer?.shadowOffset = .zero
-        
         // Set up view hierarchy
-        backgroundView.addSubview(stackView)
+        backgroundView.addSubview(mainStackView)
         containerView.addSubview(backgroundView)
         runningAppsWindow.contentView = containerView
         
-        // Ensure container view is above blur and fully opaque
-        containerView.layer?.zPosition = 1
-        containerView.alphaValue = 1.0
-        
-        // Make sure stack view with icons is fully opaque
-        stackView.alphaValue = 1.0
-        
-        // Add app icons
-        for app in runningApps {
-            if let appIcon = app.icon {
-                appIcon.size = NSSize(width: currentIconSize, height: currentIconSize)
-                
-                // Only make hidden apps grayscale
-                let finalIcon: NSImage
-                if app.isHidden {
-                    if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                        let ciImage = CIImage(cgImage: cgImage)
-                        let filter = CIFilter(name: "CIColorMonochrome")!
-                        filter.setValue(ciImage, forKey: kCIInputImageKey)
-                        filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
-                        filter.setValue(1.0, forKey: kCIInputIntensityKey)
-                        
-                        if let output = filter.outputImage {
-                            let context = CIContext(options: nil)
-                            if let cgOutput = context.createCGImage(output, from: output.extent) {
-                                finalIcon = NSImage(cgImage: cgOutput, size: NSSize(width: currentIconSize, height: currentIconSize))
-                            } else {
-                                finalIcon = appIcon
-                            }
-                        } else {
-                            finalIcon = appIcon
-                        }
-                    } else {
-                        finalIcon = appIcon
-                    }
-                } else {
-                    finalIcon = appIcon
-                }
-                
-                // Create fixed-size container
-                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                containerView.wantsLayer = true
-                
-                let imageView = ClickableImageView(frame: containerView.bounds)
-                imageView.imageScaling = .scaleProportionallyDown
-                imageView.image = finalIcon
-                imageView.wantsLayer = true
-                imageView.layer?.masksToBounds = true
-                imageView.tag = Int(app.processIdentifier)
-                
-                // Remove opacity change for hidden apps
-                imageView.alphaValue = 1.0  // Always fully visible
-                
-                // Center image in container
-                containerView.addSubview(imageView)
-                
-                // Add fixed-width constraint to container
-                containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
-                
-                stackView.addArrangedSubview(containerView)
-            }
-        }
-        
-        // Add edge handles with current position
+        // Add edge handles
         leftHandle = EdgeHandleView(frame: NSRect(x: shadowPadding, 
                                                 y: shadowPadding,
                                                 width: 20,
@@ -358,6 +458,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             containerView.addSubview(right)
         }
         
+        // Update window visibility
         runningAppsWindow.orderFront(nil)
     }
     
@@ -371,6 +472,154 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         if let observer = terminationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
+        // Remove window observers
+        for observer in windowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+    
+    private func runAerospaceCommand(args: [String]) -> String? {
+        let paths = [
+            "/opt/homebrew/bin/aerospace",
+            "/usr/local/bin/aerospace",
+            "/usr/bin/aerospace"
+        ]
+        
+        for path in paths {
+            print("Trying path: \(path)")
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: path)
+            task.arguments = args
+            
+            // Set PATH environment variable
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:" + (env["PATH"] ?? "")
+            task.environment = env
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            
+            let errorPipe = Pipe()
+            task.standardError = errorPipe
+            
+            do {
+                try task.run()
+                task.waitUntilExit()
+                
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                
+                if let errorOutput = String(data: errorData, encoding: .utf8), !errorOutput.isEmpty {
+                    print("Error output: \(errorOutput)")
+                }
+                
+                if let output = String(data: data, encoding: .utf8) {
+                    print("Success with path: \(path)")
+                    print("Output: \(output)")
+                    return output
+                }
+            } catch {
+                print("Failed with path \(path): \(error)")
+                continue
+            }
+        }
+        print("All paths failed")
+        return nil
+    }
+
+    struct WindowInfo: Codable {
+        let pid: Int
+        let title: String
+        let appName: String
+        let isHidden: Bool
+        
+        var appIcon: NSImage? {
+            if let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
+                return app.icon
+            }
+            return nil
+        }
+    }
+
+    struct WorkspaceGroup: Identifiable {
+        let workspace: String
+        let windows: [WindowInfo]
+        
+        var id: String { workspace }  // Conform to Identifiable using workspace as the id
+    }
+
+    private func getWorkspaceGroups() -> [WorkspaceGroup] {
+        // Check if cache is valid
+        if let cache = workspaceCache,
+           let timestamp = workspaceCacheTimestamp,
+           Date().timeIntervalSince(timestamp) < workspaceCacheLifetime {
+            print("Using cached workspace data (age: \(Date().timeIntervalSince(timestamp))s)")
+            return cache
+        }
+        
+        print("=== Getting Fresh Workspace Groups ===")
+        var groups: [WorkspaceGroup] = []
+        
+        // Get list of workspaces
+        let workspaces = getWorkspaces()
+        print("Found \(workspaces.count) workspaces: \(workspaces)")
+        
+        // Get windows for each workspace
+        for workspace in workspaces {
+            print("\nGetting windows for workspace: \(workspace)")
+            let windows = getWindowsForWorkspace(workspace)
+            if !windows.isEmpty {
+                groups.append(WorkspaceGroup(workspace: workspace, windows: windows.map { 
+                    WindowInfo(pid: Int($0.pid), title: $0.title, appName: $0.name, isHidden: false) 
+                }))
+                print("Found \(windows.count) windows in workspace \(workspace)")
+            }
+        }
+        
+        print("\nUpdating cache with \(groups.count) workspace groups")
+        workspaceCache = groups
+        workspaceCacheTimestamp = Date()
+        
+        return groups
+    }
+    
+    private func getWorkspaces() -> [String] {
+        guard let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--all"]) else {
+            print("Failed to get workspace list")
+            return []
+        }
+        
+        return workspaceOutput.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+    
+    private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
+        guard let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) else {
+            return []
+        }
+        
+        return windowOutput.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .compactMap { line -> (pid: Int32, title: String, name: String)? in
+                let parts = line.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                guard parts.count >= 3,
+                      let pid = Int32(parts[0]) else {
+                    return nil
+                }
+                return (pid: pid, title: parts[1], name: parts[2])
+            }
+    }
+    
+    private func shouldProcessWindowUpdate() -> Bool {
+        let now = Date()
+        let timeSinceLastUpdate = now.timeIntervalSince(lastWindowUpdateTime)
+        if timeSinceLastUpdate >= minimumWindowUpdateInterval {
+            lastWindowUpdateTime = now
+            return true
+        }
+        return false
     }
 }
 
@@ -378,8 +627,57 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 class ClickableImageView: NSImageView {
     private var popover: NSPopover?
     private var isMouseInside = false
+    private var originalIcon: NSImage?
+    private var grayscaleIcon: NSImage?
     
     override var acceptsFirstResponder: Bool { return true }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setupInitialIcon()
+    }
+    
+    private func setupInitialIcon() {
+        guard let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) else { return }
+        
+        // Store original icon
+        if let appIcon = app.icon {
+            appIcon.size = bounds.size
+            originalIcon = appIcon
+            
+            // Create grayscale version if app is hidden
+            if app.isHidden {
+                grayscaleIcon = createGrayscaleIcon(from: appIcon)
+                self.image = grayscaleIcon
+                self.alphaValue = 0.5
+            } else {
+                self.image = appIcon
+                self.alphaValue = 1.0
+            }
+        }
+        
+        // Enable smooth transitions
+        wantsLayer = true
+        layer?.actions = [
+            "contents": NSNull(),
+            "opacity": CABasicAnimation(keyPath: "opacity")
+        ]
+    }
+    
+    private func createGrayscaleIcon(from icon: NSImage) -> NSImage? {
+        guard let cgImage = icon.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        
+        let ciImage = CIImage(cgImage: cgImage)
+        let filter = CIFilter(name: "CIColorMonochrome")!
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
+        filter.setValue(1.0, forKey: kCIInputIntensityKey)
+        
+        guard let output = filter.outputImage else { return nil }
+        let context = CIContext(options: nil)
+        guard let cgOutput = context.createCGImage(output, from: output.extent) else { return nil }
+        return NSImage(cgImage: cgOutput, size: bounds.size)
+    }
     
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -433,13 +731,14 @@ class ClickableImageView: NSImageView {
     override func mouseEntered(with event: NSEvent) {
         isMouseInside = true
         
-        // Show original colored icon and tooltip immediately
-        if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)),
-           let appIcon = app.icon {
-            appIcon.size = bounds.size
-            self.image = appIcon
-            showTooltipIfNeeded()
+        // Always show original colored icon on hover with smooth transition
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            self.animator().image = originalIcon
+            self.animator().alphaValue = 1.0
         }
+        
+        showTooltipIfNeeded()
     }
     
     override func mouseExited(with event: NSEvent) {
@@ -447,32 +746,16 @@ class ClickableImageView: NSImageView {
         popover?.close()
         popover = nil
         
-        // Only return to grayscale if app is hidden
+        // Return to grayscale if app is hidden with smooth transition
         if let app = NSRunningApplication(processIdentifier: pid_t(self.tag)) {
-            if app.isHidden {
-                if let appIcon = app.icon {
-                    appIcon.size = self.bounds.size
-                    
-                    if let cgImage = appIcon.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                        let ciImage = CIImage(cgImage: cgImage)
-                        let filter = CIFilter(name: "CIColorMonochrome")!
-                        filter.setValue(ciImage, forKey: kCIInputImageKey)
-                        filter.setValue(CIColor(red: 0.7, green: 0.7, blue: 0.7), forKey: kCIInputColorKey)
-                        filter.setValue(1.0, forKey: kCIInputIntensityKey)
-                        
-                        if let output = filter.outputImage {
-                            let context = CIContext(options: nil)
-                            if let cgOutput = context.createCGImage(output, from: output.extent) {
-                                self.image = NSImage(cgImage: cgOutput, size: self.bounds.size)
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Non-hidden apps keep their original icon
-                if let appIcon = app.icon {
-                    appIcon.size = self.bounds.size
-                    self.image = appIcon
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                if app.isHidden {
+                    self.animator().image = grayscaleIcon
+                    self.animator().alphaValue = 0.5
+                } else {
+                    self.animator().image = originalIcon
+                    self.animator().alphaValue = 1.0
                 }
             }
         }
@@ -486,17 +769,19 @@ class ClickableImageView: NSImageView {
         // Update to use non-deprecated activation method
         _ = app.activate(options: .activateAllWindows)
         
-        // Reset opacity since app is now active
-        self.alphaValue = 1.0
+        // Reset opacity and icon since app is now active
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            self.animator().image = originalIcon
+            self.animator().alphaValue = 1.0
+        }
         
         // Force active app to far left by moving all other apps right
         let currentApps = appDelegate.recentAppOrder.filter { $0 != bundleID }
         appDelegate.recentAppOrder = [bundleID] + currentApps
         
-        // Force immediate UI update
-        DispatchQueue.main.async {
-            appDelegate.updateRunningApps()
-        }
+        // Update UI
+        appDelegate.debouncedUpdateRunningApps()
     }
     
     override func rightMouseDown(with event: NSEvent) {
@@ -504,22 +789,22 @@ class ClickableImageView: NSImageView {
               let bundleID = app.bundleIdentifier,
               let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp else { return }
         
-        print("Right click - Before order: \(appDelegate.recentAppOrder)")
-        
         // Hide the app
         _ = app.hide()
+        
+        // Animate to grayscale
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            self.animator().image = grayscaleIcon
+            self.animator().alphaValue = 0.5
+        }
         
         // FORCE IT TO THE RIGHT - PERIOD.
         appDelegate.recentAppOrder.removeAll { $0 == bundleID }
         appDelegate.recentAppOrder.insert(bundleID, at: 0)  // This puts it far right because of reversed sort
         
-        print("Right click - After order: \(appDelegate.recentAppOrder)")
-        
-        // FORCE UPDATE NOW
-        appDelegate.updateRunningApps()
-        DispatchQueue.main.async {
-            appDelegate.updateRunningApps()  // Double-tap the update to make sure
-        }
+        // Update UI
+        appDelegate.debouncedUpdateRunningApps()
     }
 }
 
@@ -545,8 +830,8 @@ extension RunningAppDisplayApp: ResizeHandleDelegate {
             runningAppsWindow.ignoresMouseEvents = false
             runningAppsWindow.acceptsMouseMovedEvents = true
             
-            // Force immediate update
-            updateRunningApps()
+            // Use debounced update
+            debouncedUpdateRunningApps()
             
             // Ensure window stays interactive after update
             DispatchQueue.main.async {
@@ -761,10 +1046,8 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         if let contentView = runningAppsWindow.contentView {
             contentView.subviews.forEach { $0.removeFromSuperview() }
             
-            // Force complete rebuild by calling updateRunningApps
-            DispatchQueue.main.async {
-                self.updateRunningApps()
-            }
+            // Use debounced update
+            debouncedUpdateRunningApps()
         }
     }
 }
