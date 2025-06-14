@@ -296,16 +296,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let workspaceNumberWidth: CGFloat = 8  // Width for workspace number
         let shadowPadding: CGFloat = 0  // Keep this for now
         
-        // Create container view with flexible width
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: currentIconSize + (verticalPadding * 2)))
+        // Create container view that will size to fit content
+        let containerView = NSView(frame: .zero)
         containerView.wantsLayer = true
         
         // Create background view that will size to fit content
-        let backgroundView = NSView(frame: containerView.bounds)
+        let backgroundView = NSView(frame: .zero)
         backgroundView.wantsLayer = true
         
         // Create visual effect view for blur
-        let blurView = NSVisualEffectView(frame: backgroundView.bounds)
+        let blurView = NSVisualEffectView(frame: .zero)
         blurView.blendingMode = NSVisualEffectView.BlendingMode.behindWindow
         blurView.state = NSVisualEffectView.State.active
         blurView.material = NSVisualEffectView.Material.hudWindow
@@ -342,25 +342,34 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         mainStackView.translatesAutoresizingMaskIntoConstraints = false
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         blurView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Set hugging and compression resistance
+        mainStackView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        mainStackView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         
         NSLayoutConstraint.activate([
-            // Main stack view constraints
+            // Main stack view constraints - let it determine its own size
             mainStackView.leadingAnchor.constraint(equalTo: blurView.leadingAnchor, constant: horizontalPadding),
             mainStackView.trailingAnchor.constraint(equalTo: blurView.trailingAnchor, constant: -horizontalPadding),
             mainStackView.topAnchor.constraint(equalTo: blurView.topAnchor, constant: verticalPadding),
             mainStackView.bottomAnchor.constraint(equalTo: blurView.bottomAnchor, constant: -verticalPadding),
             
-            // Background view constraints
-            backgroundView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: shadowPadding),
-            backgroundView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -shadowPadding),
-            backgroundView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: shadowPadding),
-            backgroundView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -shadowPadding),
+            // Background view constraints - size to container
+            backgroundView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            backgroundView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             
-            // Blur view constraints
+            // Blur view constraints - size to background
             blurView.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor),
             blurView.topAnchor.constraint(equalTo: backgroundView.topAnchor),
-            blurView.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor)
+            blurView.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor),
+            
+            // Container constraints - size to main stack
+            containerView.widthAnchor.constraint(equalTo: mainStackView.widthAnchor, constant: horizontalPadding * 2),
+            containerView.heightAnchor.constraint(equalTo: mainStackView.heightAnchor, constant: verticalPadding * 2)
         ])
         
         // Add apps for each group
@@ -469,16 +478,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Layout views to get final sizes
         mainStackView.layoutSubtreeIfNeeded()
-        containerView.layoutSubtreeIfNeeded()
         
-        // Calculate actual width needed
-        let totalWidth = mainStackView.fittingSize.width + (horizontalPadding * 2)
-        let totalHeight = mainStackView.fittingSize.height + (verticalPadding * 2)
-        
-        // Update container view size
-        containerView.setFrameSize(NSSize(width: totalWidth, height: totalHeight))
-        backgroundView.setFrameSize(containerView.frame.size)
-        blurView.setFrameSize(backgroundView.frame.size)
+        // Get the natural size of the stack view
+        let stackSize = mainStackView.fittingSize
+        let totalWidth = stackSize.width + (horizontalPadding * 2)
+        let totalHeight = stackSize.height + (verticalPadding * 2)
         
         // Position window
         if let mainScreen = NSScreen.screens.first {
@@ -492,13 +496,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             }
             
             print("Positioning dock \(currentDockPosition) at x: \(xPosition)")
+            print("Stack natural size - width: \(stackSize.width), height: \(stackSize.height)")
             
             let yPosition = mainScreen.visibleFrame.minY
             let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
             
             print("Setting window frame - x: \(xPosition), y: \(yPosition), width: \(totalWidth), height: \(totalHeight)")
             print("Screen visible frame - x: \(mainScreen.visibleFrame.minX), y: \(mainScreen.visibleFrame.minY), width: \(mainScreen.visibleFrame.width), height: \(mainScreen.visibleFrame.height)")
-            print("Stack view size - width: \(mainStackView.fittingSize.width), height: \(mainStackView.fittingSize.height)")
             
             runningAppsWindow.setFrame(newFrame, display: true)
         }
