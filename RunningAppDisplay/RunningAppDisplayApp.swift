@@ -77,7 +77,34 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        print("Application did finish launching")
         let workspace = NSWorkspace.shared
+        
+        // Create floating window for running apps with larger height
+        runningAppsWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 100), // Give it an initial size
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        
+        print("Created window with initial frame: \(runningAppsWindow.frame)")
+        
+        // Update window setup
+        runningAppsWindow.level = .popUpMenu 
+        runningAppsWindow.backgroundColor = .clear
+        runningAppsWindow.isOpaque = false
+        runningAppsWindow.hasShadow = false
+        runningAppsWindow.ignoresMouseEvents = false
+        runningAppsWindow.acceptsMouseMovedEvents = true
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
+        runningAppsWindow.isMovableByWindowBackground = false
+        runningAppsWindow.alphaValue = 1.0
+        
+        // Make sure window is visible
+        runningAppsWindow.makeKeyAndOrderFront(nil)
+        
+        print("Window setup complete - level: \(runningAppsWindow.level.rawValue), visible: \(runningAppsWindow.isVisible)")
         
         // Keep existing activation observer
         workspaceNotificationObserver = workspace.notificationCenter.addObserver(
@@ -144,25 +171,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             }
         ]
-        
-        // Create floating window for running apps with larger height
-        runningAppsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 0, height: 0),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        
-        // Update window setup
-        runningAppsWindow.level = .popUpMenu 
-        runningAppsWindow.backgroundColor = .clear
-        runningAppsWindow.isOpaque = false
-        runningAppsWindow.hasShadow = false
-        runningAppsWindow.ignoresMouseEvents = false
-        runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
-        runningAppsWindow.isMovableByWindowBackground = false
-        runningAppsWindow.alphaValue = 1.0
         
         // Initialize with current running apps
         let runningApps = workspace.runningApplications.filter { 
@@ -339,28 +347,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         blurView.material = .hudWindow
         blurView.alphaValue = 0.8
         blurView.wantsLayer = true
+        blurView.layer?.backgroundColor = NSColor.purple.withAlphaComponent(0.3).cgColor // Debug tint
         blurView.isEmphasized = true
         blurView.appearance = NSApp.effectiveAppearance
         blurView.layer?.borderWidth = 0
-        blurView.layer?.borderColor = nil
-        blurView.layer?.cornerRadius = 12
-        blurView.layer?.maskedCorners = []
         
-        switch currentDockPosition {
-        case .left:
-            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]
-        case .center:
-            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        case .right:
-            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]
-        }
-        
-        blurView.alphaValue = 0.7
-        backgroundView.addSubview(blurView)
-        
-        // Create stack view for all groups
-        let mainStackView = NSStackView(frame: NSRect(x: horizontalPadding, y: verticalPadding, 
-                                                    width: contentWidth - (horizontalPadding * 2), 
+        // Create main stack view with padding
+        let mainStackView = NSStackView(frame: NSRect(x: horizontalPadding, 
+                                                    y: verticalPadding,
+                                                    width: contentWidth - (horizontalPadding * 2),
                                                     height: iconSize.height))
         mainStackView.wantsLayer = true
         mainStackView.layer?.backgroundColor = NSColor.green.withAlphaComponent(0.3).cgColor // Debug tint
@@ -368,18 +363,33 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         mainStackView.spacing = groupSpacing
         mainStackView.distribution = .fill
         mainStackView.alignment = .centerY
-        mainStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         
-        // Add each workspace group
+        // Set up view hierarchy
+        backgroundView.addSubview(blurView)
+        blurView.addSubview(mainStackView)
+        containerView.addSubview(backgroundView)
+        
+        print("View hierarchy setup:")
+        print("Container view frame: \(containerView.frame)")
+        print("Background view frame: \(backgroundView.frame)")
+        print("Blur view frame: \(blurView.frame)")
+        print("Main stack view frame: \(mainStackView.frame)")
+        
+        // Add apps for each group
         for group in groups {
+            print("\nProcessing group \(group.workspace) with \(group.windows.count) windows")
             // Create stack view for this group
             let groupStack = NSStackView(frame: NSRect(x: 0, y: 0, 
                                                      width: CGFloat(group.windows.count) * (iconSize.width + spacing) - spacing, 
                                                      height: iconSize.height))
+            groupStack.wantsLayer = true
+            groupStack.layer?.backgroundColor = NSColor.yellow.withAlphaComponent(0.3).cgColor // Debug tint
             groupStack.orientation = .horizontal
             groupStack.spacing = spacing
             groupStack.distribution = .fillEqually
             groupStack.alignment = .centerY
+            
+            print("Created group stack with frame: \(groupStack.frame)")
             
             // Add separator before group (except first group)
             if let firstGroup = groups.first, group.workspace != firstGroup.workspace {
@@ -388,29 +398,70 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 separator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.3).cgColor
                 separator.layer?.cornerRadius = 1
                 mainStackView.addArrangedSubview(separator)
+                print("Added separator")
             }
             
             // Add apps for this group
             for window in group.windows {
-                if let appIcon = window.appIcon {
-                    appIcon.size = NSSize(width: currentIconSize, height: currentIconSize)
-                    
-                    let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                    containerView.wantsLayer = true
-                    
-                    let imageView = ClickableImageView(frame: containerView.bounds)
-                    imageView.imageScaling = .scaleProportionallyDown
-                    imageView.image = appIcon
-                    imageView.wantsLayer = true
-                    imageView.layer?.masksToBounds = true
-                    imageView.tag = Int(window.pid)
-                    imageView.alphaValue = window.isHidden ? 0.5 : 1.0
-                    
-                    containerView.addSubview(imageView)
-                    containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
-                    
-                    groupStack.addArrangedSubview(containerView)
+                print("Processing window - PID: \(window.pid), Title: \(window.title)")
+                
+                // Try to get icon from running app first
+                var appIcon: NSImage?
+                var isHidden = false
+                
+                if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
+                    print("Found running app: \(app.localizedName ?? "unknown"), Bundle ID: \(app.bundleIdentifier ?? "none")")
+                    appIcon = app.icon
+                    isHidden = app.isHidden
                 }
+                
+                // Fallback to system icons if no running app found
+                if appIcon == nil {
+                    print("Using fallback icon for: \(window.title)")
+                    let commonAppIcons = [
+                        "Firefox Developer Edition": "/Applications/Firefox Developer Edition.app",
+                        "Firefox": "/Applications/Firefox.app",
+                        "Safari": "/Applications/Safari.app",
+                        "Finder": "/System/Library/CoreServices/Finder.app",
+                        "Xcode": "/Applications/Xcode.app",
+                        "Music": "/System/Applications/Music.app",
+                        "Signal": "/Applications/Signal.app",
+                        "Cursor": "/Applications/Cursor.app"
+                    ]
+                    
+                    if let appPath = commonAppIcons[window.title] {
+                        appIcon = NSWorkspace.shared.icon(forFile: appPath)
+                    }
+                }
+                
+                // Final fallback to generic app icon
+                if appIcon == nil {
+                    appIcon = NSWorkspace.shared.icon(forFileType: "app")
+                }
+                
+                // Ensure we have an icon and size it correctly
+                guard let icon = appIcon else { continue }
+                icon.size = NSSize(width: currentIconSize, height: currentIconSize)
+                print("Got icon with size: \(icon.size)")
+                
+                let containerView = NSView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
+                containerView.wantsLayer = true
+                containerView.layer?.backgroundColor = NSColor.red.withAlphaComponent(0.3).cgColor // Debug tint
+                
+                let imageView = ClickableImageView(frame: containerView.bounds)
+                imageView.imageScaling = .scaleProportionallyDown
+                imageView.image = icon
+                imageView.wantsLayer = true
+                imageView.layer?.cornerRadius = 6
+                imageView.layer?.masksToBounds = true
+                imageView.tag = Int(window.pid)
+                imageView.alphaValue = isHidden ? 0.5 : 1.0
+                
+                containerView.addSubview(imageView)
+                containerView.widthAnchor.constraint(equalToConstant: iconSize.width).isActive = true
+                
+                groupStack.addArrangedSubview(containerView)
+                print("Added icon view for \(window.title)")
             }
             
             mainStackView.addArrangedSubview(groupStack)
@@ -427,8 +478,23 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 mainScreen.visibleFrame.maxX - totalWidth
             }
             
-            let yPosition = mainScreen.visibleFrame.minY
-            runningAppsWindow.setFrame(NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight), display: true)
+            // Position at bottom of screen with some padding
+            let yPosition = mainScreen.visibleFrame.minY + 10 // Add 10px padding from bottom
+            
+            let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
+            print("Positioning window at: \(newFrame)")
+            
+            runningAppsWindow.setFrame(newFrame, display: true)
+            
+            // Force window to front and make visible
+            runningAppsWindow.orderFront(nil)
+            runningAppsWindow.makeKeyAndOrderFront(nil)
+            
+            // Debug window state
+            print("Window level: \(runningAppsWindow.level.rawValue)")
+            print("Window is visible: \(runningAppsWindow.isVisible)")
+            print("Window alpha: \(runningAppsWindow.alphaValue)")
+            print("Window frame: \(runningAppsWindow.frame)")
         }
         
         // Set up view hierarchy
@@ -457,9 +523,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             containerView.addSubview(left)
             containerView.addSubview(right)
         }
-        
-        // Update window visibility
-        runningAppsWindow.orderFront(nil)
     }
     
     deinit {
@@ -535,8 +598,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         var appIcon: NSImage? {
             if let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
+                print("Getting icon for PID \(pid): \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
                 return app.icon
             }
+            print("Failed to get icon for PID \(pid)")
             return nil
         }
     }
@@ -569,9 +634,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             print("\nGetting windows for workspace: \(workspace)")
             let windows = getWindowsForWorkspace(workspace)
             if !windows.isEmpty {
-                groups.append(WorkspaceGroup(workspace: workspace, windows: windows.map { 
-                    WindowInfo(pid: Int($0.pid), title: $0.title, appName: $0.name, isHidden: false) 
-                }))
+                let windowInfos = windows.map { window -> WindowInfo in
+                    let info = WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name, isHidden: false)
+                    print("Created WindowInfo - PID: \(info.pid), Name: \(info.appName)")
+                    if let app = NSRunningApplication(processIdentifier: pid_t(info.pid)) {
+                        print("Found running app: \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
+                    } else {
+                        print("No running app found for PID \(info.pid)")
+                    }
+                    return info
+                }
+                groups.append(WorkspaceGroup(workspace: workspace, windows: windowInfos))
                 print("Found \(windows.count) windows in workspace \(workspace)")
             }
         }
@@ -605,10 +678,43 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             .compactMap { line -> (pid: Int32, title: String, name: String)? in
                 let parts = line.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
                 guard parts.count >= 3,
-                      let pid = Int32(parts[0]) else {
+                      let windowId = Int32(parts[0]) else {
                     return nil
                 }
-                return (pid: pid, title: parts[1], name: parts[2])
+                
+                // Use the app name to find the actual running app
+                let appName = parts[1].trimmingCharacters(in: .whitespaces)
+                print("Looking for app with name: \(appName)")
+                
+                // Find running app by name
+                if let app = NSWorkspace.shared.runningApplications.first(where: { 
+                    $0.localizedName?.lowercased() == appName.lowercased() ||
+                    $0.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
+                }) {
+                    print("Found running app: \(app.localizedName ?? "unknown"), PID: \(app.processIdentifier)")
+                    return (pid: app.processIdentifier, title: parts[1], name: parts[2])
+                }
+                
+                // Special case for common apps
+                let commonApps = [
+                    "Firefox Developer Edition": "org.mozilla.firefoxdeveloperedition",
+                    "Firefox": "org.mozilla.firefox",
+                    "Safari": "com.apple.Safari",
+                    "Finder": "com.apple.finder",
+                    "Xcode": "com.apple.dt.Xcode",
+                    "Music": "com.apple.Music",
+                    "Signal": "org.whispersystems.signal-desktop",
+                    "Cursor": "com.cursor.Cursor"
+                ]
+                
+                if let bundleId = commonApps[appName],
+                   let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
+                    print("Found app via bundle ID: \(app.localizedName ?? "unknown"), PID: \(app.processIdentifier)")
+                    return (pid: app.processIdentifier, title: parts[1], name: parts[2])
+                }
+                
+                print("Could not find running app for: \(appName)")
+                return (pid: windowId, title: parts[1], name: parts[2])
             }
     }
     
