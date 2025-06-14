@@ -274,9 +274,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func updateRunningApps() {
-        // print("Starting updateRunningApps")
-        // print("Current dock position: \(currentDockPosition)")
-        
+        // Get the focused workspace first
+        var focusedWorkspace: String? = nil
+        if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
+            focusedWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
         // Set critical window properties first
         runningAppsWindow.level = .popUpMenu
         runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
@@ -291,7 +294,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Get workspace groups
         let groups = getWorkspaceGroups()
-        // print("Got \(groups.count) workspace groups with \(groups.reduce(0) { $0 + $1.windows.count }) total windows")
         
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
@@ -375,7 +377,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Add apps for each group
         for group in groups {
-            // Create container for workspace group
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
             workspaceContainer.spacing = 4
@@ -386,7 +387,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let visualContainer = NSView(frame: .zero)
             visualContainer.wantsLayer = true
             visualContainer.layer?.cornerRadius = 6
-            visualContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.15).cgColor
+            
+            // Set background color based on active state
+            let isActive = group.workspace == focusedWorkspace
+            visualContainer.layer?.backgroundColor = isActive ? 
+                NSColor.windowBackgroundColor.withAlphaComponent(1).cgColor :
+                NSColor.windowBackgroundColor.withAlphaComponent(0.45).cgColor
+            
             visualContainer.addSubview(workspaceContainer)
             
             // Keep the workspaceContainer exactly as it was, just constrain it to fill the visual wrapper
@@ -398,14 +405,14 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 workspaceContainer.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor)
             ])
             
-            // Add workspace label
+            // Add workspace label with updated style for active state
             let label = NSTextField(frame: NSRect(x: 0, y: 0, width: 12, height: 14))
             label.stringValue = group.workspace
             label.isEditable = false
             label.isBordered = false
             label.backgroundColor = .clear
-            label.textColor = .secondaryLabelColor
-            label.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+            label.textColor = isActive ? .labelColor : .secondaryLabelColor
+            label.font = NSFont.systemFont(ofSize: 10, weight: isActive ? .bold : .medium)
             label.alignment = .center
             workspaceContainer.addArrangedSubview(label)
             
