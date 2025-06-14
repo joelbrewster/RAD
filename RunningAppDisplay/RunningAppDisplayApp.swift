@@ -31,6 +31,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         return .center  // Default to center
     }()
     let currentIconSize: CGFloat = 48  // Fixed size at 48px
+    let horizontalPadding: CGFloat = 8  // Edge padding
+    let verticalPadding: CGFloat = 4  // Vertical padding
+    let groupSpacing: CGFloat = 8  // Space between workspace groups
+    let shadowPadding: CGFloat = 0  // Shadow padding
+    
+    // View references
+    private var mainStackView: NSStackView?
     
     // Add property at top of class
     private var needsFollowUpUpdate = false
@@ -290,11 +297,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
         let spacing: CGFloat = 4  // Spacing between icons
-        let groupSpacing: CGFloat = 8  // Space between workspace groups
-        let horizontalPadding: CGFloat = 8  // Edge padding
-        let verticalPadding: CGFloat = 4  // Vertical padding
         let workspaceNumberWidth: CGFloat = 8  // Width for workspace number
-        let shadowPadding: CGFloat = 0  // Keep this for now
         
         // Create container view that will size to fit content
         let containerView = NSView(frame: .zero)
@@ -329,31 +332,32 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         backgroundView.addSubview(blurView)
         
         // Create main stack view that will size to fit content
-        let mainStackView = NSStackView(frame: .zero)
-        mainStackView.orientation = .horizontal
-        mainStackView.spacing = groupSpacing
-        mainStackView.distribution = .gravityAreas
-        mainStackView.alignment = .centerY
+        mainStackView = NSStackView(frame: .zero)
+        mainStackView?.orientation = .horizontal
+        mainStackView?.spacing = groupSpacing
+        mainStackView?.distribution = .gravityAreas
+        mainStackView?.alignment = .centerY
         
-        blurView.addSubview(mainStackView)
-        containerView.addSubview(backgroundView)
-        
-        // Setup constraints to make views resize with content
-        mainStackView.translatesAutoresizingMaskIntoConstraints = false
-        backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Set hugging and compression resistance
-        mainStackView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        mainStackView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-        
-        NSLayoutConstraint.activate([
-            // Main stack view constraints - let it determine its own size
-            mainStackView.leadingAnchor.constraint(equalTo: blurView.leadingAnchor, constant: horizontalPadding),
-            mainStackView.trailingAnchor.constraint(equalTo: blurView.trailingAnchor, constant: -horizontalPadding),
-            mainStackView.topAnchor.constraint(equalTo: blurView.topAnchor, constant: verticalPadding),
-            mainStackView.bottomAnchor.constraint(equalTo: blurView.bottomAnchor, constant: -verticalPadding),
+        if let mainStackView = self.mainStackView {
+            blurView.addSubview(mainStackView)
+            containerView.addSubview(backgroundView)
+            
+            // Setup constraints to make views resize with content
+            mainStackView.translatesAutoresizingMaskIntoConstraints = false
+            backgroundView.translatesAutoresizingMaskIntoConstraints = false
+            blurView.translatesAutoresizingMaskIntoConstraints = false
+            containerView.translatesAutoresizingMaskIntoConstraints = false
+            
+            // Set hugging and compression resistance
+            mainStackView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            mainStackView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+            
+            NSLayoutConstraint.activate([
+                // Main stack view constraints - let it determine its own size
+                mainStackView.leadingAnchor.constraint(equalTo: blurView.leadingAnchor, constant: horizontalPadding),
+                mainStackView.trailingAnchor.constraint(equalTo: blurView.trailingAnchor, constant: -horizontalPadding),
+                mainStackView.topAnchor.constraint(equalTo: blurView.topAnchor, constant: verticalPadding),
+                mainStackView.bottomAnchor.constraint(equalTo: blurView.bottomAnchor, constant: -verticalPadding),
             
             // Background view constraints - size to container
             backgroundView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -370,7 +374,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Container constraints - size to main stack
             containerView.widthAnchor.constraint(equalTo: mainStackView.widthAnchor, constant: horizontalPadding * 2),
             containerView.heightAnchor.constraint(equalTo: mainStackView.heightAnchor, constant: verticalPadding * 2)
-        ])
+        ])}
         
         // Add apps for each group
         for group in groups {
@@ -473,16 +477,26 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             }
             
             // Add to main stack view using the visual wrapper
-            mainStackView.addArrangedSubview(visualContainer)
+            mainStackView?.addArrangedSubview(visualContainer)
         }
         
-        // Layout views to get final sizes
-        mainStackView.layoutSubtreeIfNeeded()
+        // Force layout of the entire view hierarchy
+        containerView.layoutSubtreeIfNeeded()
         
-        // Get the natural size of the stack view
+        guard let mainStackView = self.mainStackView else { return }
+        
+        // Get the natural size after layout
         let stackSize = mainStackView.fittingSize
         let totalWidth = stackSize.width + (horizontalPadding * 2)
         let totalHeight = stackSize.height + (verticalPadding * 2)
+        
+        // Update window size first
+        let currentFrame = runningAppsWindow.frame
+        runningAppsWindow.setFrame(NSRect(x: currentFrame.minX, 
+                                        y: currentFrame.minY,
+                                        width: totalWidth,
+                                        height: totalHeight), 
+                                 display: false)
         
         // Position window
         if let mainScreen = NSScreen.screens.first {
@@ -867,26 +881,38 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         rightHandle?.currentPosition = newPosition
         UserDefaults.standard.set(newPosition.rawValue, forKey: "dockPosition")
         
-        // Get the current window size
-        let currentWidth = runningAppsWindow.frame.width
+        // Force layout to get correct size
+        if let contentView = runningAppsWindow.contentView {
+            contentView.layoutSubtreeIfNeeded()
+        }
+        
+        guard let mainStackView = self.mainStackView else { return }
+        
+        // Get the natural size of the content
+        let stackSize = mainStackView.fittingSize
+        let totalWidth = stackSize.width + (horizontalPadding * 2)
+        let totalHeight = stackSize.height + (verticalPadding * 2)
         
         // Calculate new window position
-        let shadowOffset: CGFloat = 0
         let newX: CGFloat = switch newPosition {
         case .left:
-            screen.visibleFrame.minX - shadowOffset
+            screen.visibleFrame.minX - shadowPadding
         case .center:
-            (screen.visibleFrame.width - currentWidth) / 2
+            (screen.visibleFrame.width - totalWidth) / 2
         case .right:
-            screen.visibleFrame.maxX - currentWidth + shadowOffset
+            screen.visibleFrame.maxX - totalWidth + shadowPadding
         }
         
         print("Dragging dock \(newPosition) at x: \(newX)")
-        print("Dragging window frame - x: \(newX), y: \(runningAppsWindow.frame.minY), width: \(currentWidth), height: \(runningAppsWindow.frame.height)")
+        print("Stack natural size - width: \(stackSize.width), height: \(stackSize.height)")
         print("Screen visible frame - x: \(screen.visibleFrame.minX), y: \(screen.visibleFrame.minY), width: \(screen.visibleFrame.width), height: \(screen.visibleFrame.height)")
         
-        // Update window position before rebuild
-        runningAppsWindow.setFrameOrigin(NSPoint(x: newX, y: runningAppsWindow.frame.minY))
+        // Update window frame in one operation
+        let newFrame = NSRect(x: newX, 
+                            y: runningAppsWindow.frame.minY,
+                            width: totalWidth,
+                            height: totalHeight)
+        runningAppsWindow.setFrame(newFrame, display: true, animate: false)
         
         // Clear all content and force complete rebuild
         if let contentView = runningAppsWindow.contentView {
