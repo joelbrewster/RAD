@@ -191,13 +191,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         for app in runningApps {
             if let bundleID = app.bundleIdentifier,
                !recentAppOrder.contains(bundleID) {
-                if app.isHidden {
-                    // Hidden apps go to start (appears right)
-                    recentAppOrder.insert(bundleID, at: 0)
-                } else {
-                    // Normal apps go after front app
-                    recentAppOrder.append(bundleID)
-                }
+                // Add new apps to the end of the list
+                recentAppOrder.append(bundleID)
             }
         }
         
@@ -314,7 +309,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         blurView.blendingMode = NSVisualEffectView.BlendingMode.behindWindow
         blurView.state = NSVisualEffectView.State.active
         blurView.material = NSVisualEffectView.Material.hudWindow
-        blurView.alphaValue = 1
         blurView.wantsLayer = true
         blurView.isEmphasized = true
         blurView.appearance = NSApp.effectiveAppearance
@@ -429,11 +423,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             for window in group.windows {
                 // Try to get icon from running app first
                 var appIcon: NSImage?
-                var isHidden = false
                 
                 if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
                     appIcon = app.icon
-                    isHidden = app.isHidden
                 }
                 
                 guard let icon = appIcon else { continue }
@@ -445,7 +437,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 imageView.layer?.cornerRadius = 6
                 imageView.layer?.masksToBounds = true
                 imageView.tag = Int(window.pid)
-                imageView.alphaValue = isHidden ? 0.5 : 1.0
                 
                 // Add size constraints to ensure exact size
                 imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -581,7 +572,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let pid: Int
         let title: String
         let appName: String
-        let isHidden: Bool
         
         var appIcon: NSImage? {
             if let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
@@ -622,7 +612,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let windows = getWindowsForWorkspace(workspace)
             if !windows.isEmpty {
                 let windowInfos = windows.map { window -> WindowInfo in
-                    let info = WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name, isHidden: false)
+                    let info = WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name)
                     // print("Created WindowInfo - PID: \(info.pid), Name: \(info.appName)")
                     if let app = NSRunningApplication(processIdentifier: pid_t(info.pid)) {
                         // print("Found running app: \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
