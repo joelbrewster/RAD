@@ -425,7 +425,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             label.isBordered = false
             label.backgroundColor = .clear
             label.textColor = isActive ? .labelColor : .tertiaryLabelColor
-            label.font = NSFont.monospacedSystemFont(ofSize: 14, weight: isActive ? .medium : .regular)
+            label.font = NSFont.monospacedSystemFont(ofSize: 14, weight: isActive ? .bold : .medium)
             label.alignment = .center
             label.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
