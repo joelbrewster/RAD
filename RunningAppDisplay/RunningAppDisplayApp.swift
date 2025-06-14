@@ -311,13 +311,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let blurView = NSVisualEffectView(frame: .zero)
         blurView.blendingMode = NSVisualEffectView.BlendingMode.behindWindow
         blurView.state = NSVisualEffectView.State.active
-        blurView.material = NSVisualEffectView.Material.hudWindow
+        blurView.material = NSVisualEffectView.Material.menu
         blurView.wantsLayer = true
         blurView.isEmphasized = true
         blurView.appearance = NSApp.effectiveAppearance
         blurView.layer?.borderWidth = 0
-        blurView.layer?.cornerRadius = 12
-        blurView.alphaValue = 1.0  // Background opacity
+        blurView.layer?.cornerRadius = 8
+        blurView.alphaValue = 0.95  // Slightly more transparent
         
         // Set corner masking based on position
         switch currentDockPosition {
@@ -389,18 +389,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let visualContainer = NSVisualEffectView(frame: .zero)
             visualContainer.blendingMode = .behindWindow
             visualContainer.state = .active
-            visualContainer.material = .toolTip
+            visualContainer.material = .selection
             visualContainer.wantsLayer = true
             visualContainer.isEmphasized = true
             visualContainer.appearance = NSApp.effectiveAppearance
-            visualContainer.layer?.cornerRadius = 12
+            visualContainer.layer?.cornerRadius = 6
             
             // Set solid background with more contrast between active and inactive
             let isActive = group.workspace == focusedWorkspace
-            visualContainer.alphaValue = isActive ? 1.0 : 0.8  // Made inactive more transparent
+            visualContainer.alphaValue = isActive ? 0.9 : 0.6  // Made inactive more transparent
             visualContainer.layer?.backgroundColor = isActive ?
-                NSColor(white: 0.8, alpha: 0.8).cgColor :  // Made active slightly more visible
-                NSColor(white: 0.4, alpha: 0.4).cgColor    // Made inactive more subtle
+                NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor :  // Use system accent color
+                NSColor(white: 0.5, alpha: 0.2).cgColor    // More subtle inactive state
             
             visualContainer.addSubview(workspaceContainer)
             
@@ -419,12 +419,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             label.isEditable = false
             label.isBordered = false
             label.backgroundColor = .clear
-            label.textColor = isActive ? .labelColor : .secondaryLabelColor
-            label.font = NSFont.monospacedSystemFont(ofSize: 16, weight: isActive ? .bold : .semibold)
+            label.textColor = isActive ? .labelColor : .tertiaryLabelColor
+            label.font = NSFont.monospacedSystemFont(ofSize: 14, weight: isActive ? .medium : .regular)
             label.alignment = .center
             label.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                label.widthAnchor.constraint(equalToConstant: 24)
+                label.widthAnchor.constraint(equalToConstant: 20)
             ])
             workspaceContainer.addArrangedSubview(label)
             
