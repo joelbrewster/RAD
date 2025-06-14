@@ -395,12 +395,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             visualContainer.appearance = NSApp.effectiveAppearance
             visualContainer.layer?.cornerRadius = 12
             
-            // Set solid background with different visual weights
+            // Set solid background with more contrast between active and inactive
             let isActive = group.workspace == focusedWorkspace
-            visualContainer.alphaValue = isActive ? 1.0 : 0.85
-            visualContainer.layer?.backgroundColor = isActive ? 
-                NSColor(white: 0.3, alpha: 0.3).cgColor :
-                NSColor(white: 0.2, alpha: 0.2).cgColor
+            visualContainer.alphaValue = isActive ? 1.0 : 0.8  // Made inactive more transparent
+            visualContainer.layer?.backgroundColor = isActive ?
+                NSColor(white: 0.8, alpha: 0.8).cgColor :  // Made active slightly more visible
+                NSColor(white: 0.4, alpha: 0.4).cgColor    // Made inactive more subtle
             
             visualContainer.addSubview(workspaceContainer)
             
