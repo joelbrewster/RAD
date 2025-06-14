@@ -297,12 +297,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
-        let spacing: CGFloat = 4  // Tighter spacing between icons
-        let groupSpacing: CGFloat = 16  // Space between workspace groups
-        let horizontalPadding: CGFloat = 6
-        let verticalPadding: CGFloat = 6
+        let spacing: CGFloat = 8  // Increased spacing between icons
+        let groupSpacing: CGFloat = 12  // Increased space between workspace groups
+        let horizontalPadding: CGFloat = 8  // Increased horizontal padding
+        let verticalPadding: CGFloat = 4  // Increased vertical padding
         let shadowPadding: CGFloat = 0
-        let resizeHandleHeight: CGFloat = 8
+        let resizeHandleHeight: CGFloat = 12
         
         // Calculate total number of windows and groups for sizing
         let totalWindows = groups.reduce(0) { $0 + $1.windows.count }
