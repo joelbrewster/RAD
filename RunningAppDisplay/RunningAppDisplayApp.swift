@@ -30,7 +30,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         return .center  // Default to center
     }()
-    var currentIconSize: CGFloat = UserDefaults.standard.float(forKey: "iconSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "iconSize")) : 48
+    let currentIconSize: CGFloat = 48  // Fixed size at 48px
     
     // Add property at top of class
     private var needsFollowUpUpdate = false
@@ -297,44 +297,35 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
-        let spacing: CGFloat = 8  // Increased spacing between icons
-        let groupSpacing: CGFloat = 12  // Increased space between workspace groups
-        let horizontalPadding: CGFloat = 8  // Increased horizontal padding
-        let verticalPadding: CGFloat = 4  // Increased vertical padding
+        let spacing: CGFloat = 8  // Spacing between icons
+        let groupSpacing: CGFloat = 12  // Space between workspace groups
+        let horizontalPadding: CGFloat = 16  // Increased edge padding
+        let verticalPadding: CGFloat = 4  // Vertical padding
         let shadowPadding: CGFloat = 0
-        let resizeHandleHeight: CGFloat = 12
         
         // Calculate total number of windows and groups for sizing
         let totalWindows = groups.reduce(0) { $0 + $1.windows.count }
         let totalGroups = groups.count
         
-        // Calculate exact sizes
+        // Calculate exact sizes with proper edge padding
         let contentWidth = CGFloat(totalWindows) * iconSize.width + 
                          CGFloat(totalWindows - 1) * spacing +  // Spacing between icons
                          CGFloat(max(0, totalGroups - 1)) * (groupSpacing - spacing) +  // Extra space between groups
                          CGFloat(totalGroups) * 16 + // Space for workspace numbers
-                         (horizontalPadding * 2)
-        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2) + resizeHandleHeight
-        let totalWidth = contentWidth
+                         (horizontalPadding * 2)  // Padding on both left and right edges
+        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2)
+        let totalWidth = contentWidth + (shadowPadding * 2)  // Account for shadow padding on both sides
         let totalHeight = contentHeight
         
         // Create container view
         let containerView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
         containerView.wantsLayer = true
         
-        // Create and add resize handle
-        let resizeHandle = ResizeHandleView(frame: NSRect(x: shadowPadding, 
-                                                        y: totalHeight - resizeHandleHeight - shadowPadding,
-                                                        width: contentWidth,
-                                                        height: resizeHandleHeight))
-        resizeHandle.delegate = self
-        containerView.addSubview(resizeHandle)
-        
         // Create background view
         let backgroundView = NSView(frame: NSRect(x: shadowPadding, 
                                                 y: shadowPadding,
                                                 width: contentWidth, 
-                                                height: contentHeight - resizeHandleHeight))
+                                                height: contentHeight))
         backgroundView.wantsLayer = true
         
         // Create visual effect view for blur
@@ -406,13 +397,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             ])
             
             // Add workspace label with updated style for active state
-            let label = NSTextField(frame: NSRect(x: 0, y: 0, width: 12, height: 14))
+            let label = NSTextField(frame: NSRect(x: 0, y: 0, width: 16, height: 18))
             label.stringValue = group.workspace
             label.isEditable = false
             label.isBordered = false
             label.backgroundColor = .clear
             label.textColor = isActive ? .labelColor : .secondaryLabelColor
-            label.font = NSFont.systemFont(ofSize: 10, weight: isActive ? .bold : .medium)
+            label.font = NSFont.monospacedSystemFont(ofSize: 16, weight: isActive ? .bold : .semibold)
             label.alignment = .center
             workspaceContainer.addArrangedSubview(label)
             
@@ -485,11 +476,20 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 
                 // Ensure we have an icon and size it correctly
                 guard let icon = appIcon else { continue }
-                icon.size = NSSize(width: currentIconSize - 2, height: currentIconSize - 2)
                 
-                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: iconSize.width, height: iconSize.height))
-                imageView.imageScaling = .scaleProportionallyDown
-                imageView.image = icon
+                // Force resize the icon to exact size
+                let resizedIcon = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
+                resizedIcon.lockFocus()
+                NSGraphicsContext.current?.imageInterpolation = .high
+                icon.draw(in: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize),
+                         from: NSRect(x: 0, y: 0, width: icon.size.width, height: icon.size.height),
+                         operation: .sourceOver,
+                         fraction: 1.0)
+                resizedIcon.unlockFocus()
+                
+                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize))
+                imageView.imageScaling = .scaleNone // Prevent any automatic scaling
+                imageView.image = resizedIcon
                 imageView.wantsLayer = true
                 imageView.layer?.cornerRadius = 6
                 imageView.layer?.masksToBounds = true
@@ -541,17 +541,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.contentView = containerView
         
         // Add edge handles
-        leftHandle = EdgeHandleView(frame: NSRect(x: shadowPadding, 
+        leftHandle = EdgeHandleView(frame: NSRect(x: 0, 
                                                 y: shadowPadding,
                                                 width: 20,
-                                                height: contentHeight - resizeHandleHeight),
+                                                height: contentHeight - shadowPadding),
                                   isLeft: true)
         leftHandle?.delegate = self
         
-        rightHandle = EdgeHandleView(frame: NSRect(x: shadowPadding + contentWidth - 20,
+        rightHandle = EdgeHandleView(frame: NSRect(x: contentWidth, // Moved to the actual edge
                                                  y: shadowPadding,
                                                  width: 20,
-                                                 height: contentHeight - resizeHandleHeight),
+                                                 height: contentHeight - shadowPadding),
                                    isLeft: false)
         rightHandle?.delegate = self
         
@@ -801,131 +801,6 @@ class ClickableImageView: NSImageView {
     
     override func mouseDown(with event: NSEvent) {
         onClick?(self)
-    }
-}
-
-// Add resize handle delegate protocol
-protocol ResizeHandleDelegate: AnyObject {
-    func handleResize(newSize: CGFloat)
-}
-
-// Add resize handle implementation
-extension RunningAppDisplayApp: ResizeHandleDelegate {
-    func handleResize(newSize: CGFloat) {
-        let screenHeight = NSScreen.main?.frame.height ?? 1000
-        let maxIconSize: CGFloat = screenHeight / 3
-        let minIconSize: CGFloat = 38
-        
-        let clampedSize = min(max(newSize, minIconSize), maxIconSize)
-        
-        if abs(currentIconSize - clampedSize) > 0.5 {
-            currentIconSize = clampedSize
-            UserDefaults.standard.set(Float(clampedSize), forKey: "iconSize")
-            
-            // Force window to stay interactive
-            runningAppsWindow.ignoresMouseEvents = false
-            runningAppsWindow.acceptsMouseMovedEvents = true
-            
-            // Use debounced update
-            debouncedUpdateRunningApps()
-            
-            // Ensure window stays interactive after update
-            DispatchQueue.main.async {
-                self.runningAppsWindow.ignoresMouseEvents = false
-                self.runningAppsWindow.acceptsMouseMovedEvents = true
-            }
-        }
-    }
-}
-
-// Add this class at the top level
-class ResizeHandleView: NSView {
-    weak var delegate: ResizeHandleDelegate?
-    private var isDragging = false
-    private var lastY: CGFloat = 0
-    private let sizeIncrement: CGFloat = 15
-    private var handleIndicator: NSView!
-    
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        
-        // Create the handle indicator (initially hidden)
-        handleIndicator = NSView(frame: NSRect(x: frame.width/2 - 20, y: 2, width: 40, height: 4))
-        handleIndicator.wantsLayer = true
-        handleIndicator.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.0).cgColor
-        handleIndicator.layer?.cornerRadius = 2
-        addSubview(handleIndicator)
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-    
-    override func mouseEntered(with event: NSEvent) {
-        NSCursor.resizeUpDown.push()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            handleIndicator.animator().alphaValue = 0.5
-        }
-    }
-    
-    override func mouseExited(with event: NSEvent) {
-        NSCursor.pop()
-        if !isDragging {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                handleIndicator.animator().alphaValue = 0
-            }
-        }
-    }
-    
-    override func mouseDown(with event: NSEvent) {
-        isDragging = true
-        lastY = NSEvent.mouseLocation.y
-        // print("=== DRAG START ===")
-        // print("Initial Y: \(lastY)")
-    }
-    
-    override func mouseDragged(with event: NSEvent) {
-        guard isDragging else { return }
-        
-        let currentY = NSEvent.mouseLocation.y
-        let deltaY = (currentY - lastY) * 100
-        
-        if abs(deltaY) > 0.5 {
-            lastY = currentY
-            
-            if let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp {
-                let sizeChange: CGFloat = (deltaY > 0 ? 15 : -15) // Back to original 15-pixel increments
-                let newSize = appDelegate.currentIconSize + sizeChange
-                // print("Resizing to: \(newSize) (Delta: \(deltaY))")
-                delegate?.handleResize(newSize: newSize)
-            }
-        }
-    }
-    
-    override func mouseUp(with event: NSEvent) {
-        isDragging = false
-        if !NSPointInRect(convert(event.locationInWindow, from: nil), bounds) {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                handleIndicator.animator().alphaValue = 0
-            }
-        }
-        // print("=== DRAG END ===")
-        // print("Final Y: \(NSEvent.mouseLocation.y)")
     }
 }
 
