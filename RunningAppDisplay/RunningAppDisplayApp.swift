@@ -338,34 +338,43 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                                                 width: contentWidth, 
                                                 height: contentHeight - resizeHandleHeight))
         backgroundView.wantsLayer = true
-        backgroundView.layer?.backgroundColor = NSColor.blue.withAlphaComponent(0.3).cgColor // Debug tint
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
         blurView.blendingMode = .behindWindow
         blurView.state = .active
         blurView.material = .hudWindow
-        blurView.alphaValue = 0.8
+        blurView.alphaValue = 0.7
         blurView.wantsLayer = true
-        blurView.layer?.backgroundColor = NSColor.purple.withAlphaComponent(0.3).cgColor // Debug tint
         blurView.isEmphasized = true
         blurView.appearance = NSApp.effectiveAppearance
         blurView.layer?.borderWidth = 0
+        blurView.layer?.cornerRadius = 12
+        
+        // Set corner masking based on position
+        switch currentDockPosition {
+        case .left:
+            blurView.layer?.maskedCorners = [.layerMaxXMaxYCorner]
+        case .center:
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        case .right:
+            blurView.layer?.maskedCorners = [.layerMinXMaxYCorner]
+        }
+        
+        // Set up view hierarchy
+        backgroundView.addSubview(blurView)
         
         // Create main stack view with padding
         let mainStackView = NSStackView(frame: NSRect(x: horizontalPadding, 
                                                     y: verticalPadding,
                                                     width: contentWidth - (horizontalPadding * 2),
                                                     height: iconSize.height))
-        mainStackView.wantsLayer = true
-        mainStackView.layer?.backgroundColor = NSColor.green.withAlphaComponent(0.3).cgColor // Debug tint
         mainStackView.orientation = .horizontal
         mainStackView.spacing = groupSpacing
         mainStackView.distribution = .fill
         mainStackView.alignment = .centerY
+        mainStackView.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         
-        // Set up view hierarchy
-        backgroundView.addSubview(blurView)
         blurView.addSubview(mainStackView)
         containerView.addSubview(backgroundView)
         
@@ -471,15 +480,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         if let mainScreen = NSScreen.screens.first {
             let xPosition: CGFloat = switch currentDockPosition {
             case .left:
-                mainScreen.visibleFrame.minX
+                mainScreen.visibleFrame.minX - shadowPadding
             case .center:
                 (mainScreen.visibleFrame.width - totalWidth) / 2 + mainScreen.visibleFrame.minX
             case .right:
-                mainScreen.visibleFrame.maxX - totalWidth
+                mainScreen.visibleFrame.maxX - totalWidth + shadowPadding
             }
             
-            // Position at bottom of screen with some padding
-            let yPosition = mainScreen.visibleFrame.minY + 10 // Add 10px padding from bottom
+            // Position at bottom of screen
+            let yPosition = mainScreen.visibleFrame.minY
             
             let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
             print("Positioning window at: \(newFrame)")
