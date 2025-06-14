@@ -30,11 +30,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         return .center  // Default to center
     }()
-    let currentIconSize: CGFloat = 48  // Fixed size at 48px
-    let horizontalPadding: CGFloat = 8  // Edge padding
-    let verticalPadding: CGFloat = 8  // Vertical padding
-    let groupSpacing: CGFloat = 8  // Space between workspace groups
-    let shadowPadding: CGFloat = 0  // Shadow padding
+    // PADDING VALUES TO CONSOLIDATE:
+    let currentIconSize: CGFloat = 32  // Fixed size
+    let horizontalPadding: CGFloat = 8  // [1] Main container edge padding (left/right)
+    let verticalPadding: CGFloat = 8    // [1] Main container edge padding (top/bottom)
+    let groupSpacing: CGFloat = 8       // [2] Space between workspace groups in main container
+    let shadowPadding: CGFloat = 0      // [3] Shadow offset for window positioning
     
     // View references
     private var mainStackView: NSStackView?
@@ -316,7 +317,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         blurView.isEmphasized = false
         blurView.appearance = NSApp.effectiveAppearance
         blurView.layer?.borderWidth = 0
-        blurView.layer?.cornerRadius = 8
+                    blurView.layer?.cornerRadius = 8  // [7] Corner radius for main container background
         blurView.alphaValue = 1.0
         
         // Set corner masking based on position
@@ -381,14 +382,14 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         for group in groups {
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
-            workspaceContainer.spacing = 2
+            workspaceContainer.spacing = 2  // [4] Space between workspace number and icon group
             workspaceContainer.distribution = .fill
             workspaceContainer.alignment = .centerY
             
             // Create container for workspace with custom background
             let visualContainer = NSView(frame: .zero)
             visualContainer.wantsLayer = true
-            visualContainer.layer?.cornerRadius = 6
+            visualContainer.layer?.cornerRadius = 6  // [6] Corner radius for workspace group background
             
             // Set background color based on active state and appearance mode
             let isActive = group.workspace == focusedWorkspace
@@ -436,7 +437,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Create stack view for this group's icons with proper constraints
             let groupStack = NSStackView(frame: .zero)
             groupStack.orientation = .horizontal
-            groupStack.spacing = 2
+            groupStack.spacing = 4  // [5] Space between individual icons in a group
             groupStack.distribution = .fillEqually
             groupStack.alignment = .centerY
             workspaceContainer.addArrangedSubview(groupStack)
@@ -685,9 +686,20 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return []
         }
         
-        return workspaceOutput.components(separatedBy: .newlines)
+        let allWorkspaces = workspaceOutput.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+            
+        // Only return workspaces that have windows in them
+        return allWorkspaces.filter { workspace in
+            if let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
+                let windows = windowOutput.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                return !windows.isEmpty
+            }
+            return false
+        }
     }
     
     private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
@@ -729,23 +741,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     $0.localizedName?.lowercased() == appName.lowercased() ||
                     $0.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
                 }) {
-                    return (pid: app.processIdentifier, title: parts[1], name: parts[2])
-                }
-                
-                // Special case for common apps
-                let commonApps = [
-                    "Firefox Developer Edition": "org.mozilla.firefoxdeveloperedition",
-                    "Firefox": "org.mozilla.firefox",
-                    "Safari": "com.apple.Safari",
-                    "Finder": "com.apple.finder",
-                    "Xcode": "com.apple.dt.Xcode",
-                    "Music": "com.apple.Music",
-                    "Signal": "org.whispersystems.signal-desktop",
-                    "Cursor": "com.cursor.Cursor"
-                ]
-                
-                if let bundleId = commonApps[appName],
-                   let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
                     return (pid: app.processIdentifier, title: parts[1], name: parts[2])
                 }
                 
