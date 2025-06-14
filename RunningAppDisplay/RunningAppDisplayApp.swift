@@ -309,15 +309,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: .zero)
-        blurView.blendingMode = NSVisualEffectView.BlendingMode.behindWindow
-        blurView.state = NSVisualEffectView.State.active
-        blurView.material = NSVisualEffectView.Material.menu
+        blurView.blendingMode = .behindWindow
+        blurView.state = .active
+        blurView.material = .hudWindow  // Closest to SwiftUI's ultraThinMaterial
         blurView.wantsLayer = true
-        blurView.isEmphasized = true
+        blurView.isEmphasized = false
         blurView.appearance = NSApp.effectiveAppearance
         blurView.layer?.borderWidth = 0
         blurView.layer?.cornerRadius = 8
-        blurView.alphaValue = 0.95  // Slightly more transparent
+        blurView.alphaValue = 1.0
         
         // Set corner masking based on position
         switch currentDockPosition {
@@ -385,22 +385,27 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             workspaceContainer.distribution = .fill
             workspaceContainer.alignment = .centerY
             
-            // Just wrap the container in a visual style
-            let visualContainer = NSVisualEffectView(frame: .zero)
-            visualContainer.blendingMode = .behindWindow
-            visualContainer.state = .active
-            visualContainer.material = .selection
+            // Create container for workspace with custom background
+            let visualContainer = NSView(frame: .zero)
             visualContainer.wantsLayer = true
-            visualContainer.isEmphasized = true
-            visualContainer.appearance = NSApp.effectiveAppearance
             visualContainer.layer?.cornerRadius = 6
             
-            // Set solid background with more contrast between active and inactive
+            // Set background color based on active state and appearance mode
             let isActive = group.workspace == focusedWorkspace
-            visualContainer.alphaValue = isActive ? 0.9 : 0.6  // Made inactive more transparent
-            visualContainer.layer?.backgroundColor = isActive ?
-                NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor :  // Use system accent color
-                NSColor(white: 0.5, alpha: 0.2).cgColor    // More subtle inactive state
+            let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            
+            // Create pure white color in sRGB color space
+            let whiteColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            
+            // Set opacity exactly as specified for each mode
+            let opacity: CGFloat
+            if isActive {
+                opacity = isDarkMode ? 0.4 : 0.8  // Active: dark=0.4, light=0.8
+            } else {
+                opacity = isDarkMode ? 0.1 : 0.4  // Inactive: dark=0.1, light=0.4
+            }
+            
+            visualContainer.layer?.backgroundColor = whiteColor.withAlphaComponent(opacity).cgColor
             
             visualContainer.addSubview(workspaceContainer)
             
@@ -483,7 +488,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 groupStack.addArrangedSubview(imageView)
             }
             
-            // Add to main stack view using the visual wrapper
+            // Add to main stack view
             mainStackView?.addArrangedSubview(visualContainer)
         }
         
