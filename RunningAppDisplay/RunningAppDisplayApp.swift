@@ -21,6 +21,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
     var updateWorkDebounceTimer: Timer?
     var isUpdating: Bool = false
+    private var lastActiveWindowId: String?
+    private var lastActiveWorkspace: String?
     var currentDockPosition: DockPosition = {
         if let savedPosition = UserDefaults.standard.string(forKey: "dockPosition"),
            let position = DockPosition(rawValue: savedPosition) {
@@ -227,16 +229,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     fileprivate func debouncedUpdateRunningApps(source: UpdateSource = .none) {
-        // print("Debounce requested from source: \(source)")
-        
         // If an update is in progress, only schedule follow-up if new source has higher priority
         if isUpdating {
             if source.priority > pendingUpdateSource.priority {
-                // print("Update in progress, scheduling higher priority follow-up")
                 pendingUpdateSource = source
                 needsFollowUpUpdate = true
-            } else {
-                // print("Update in progress, ignoring lower priority update")
             }
             return
         }
@@ -244,9 +241,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Cancel any pending timer
         updateWorkDebounceTimer?.invalidate()
         
-        // Schedule new update
-        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            // print("Timer fired")
+        // Schedule new update with longer interval
+        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             
             self.isUpdating = true
@@ -255,7 +251,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Clear cache if it's too old or if this is a high-priority update
             if let timestamp = self.workspaceCacheTimestamp,
                (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
-                // print("Cache invalidated due to time or priority")
                 self.workspaceCache = nil
                 self.workspaceCacheTimestamp = nil
             }
@@ -269,7 +264,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 
                 // If another update was requested while we were updating, process it
                 if self.needsFollowUpUpdate {
-                    // print("Processing follow-up update with source: \(self.pendingUpdateSource)")
                     self.needsFollowUpUpdate = false
                     let nextSource = self.pendingUpdateSource
                     self.pendingUpdateSource = .none
@@ -698,7 +692,19 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
         // Get the focused window first
         if let focusedWindow = runAerospaceCommand(args: ["list-windows", "--focused"]) {
-            print("Active window: \(focusedWindow)")
+            let windowInfo = focusedWindow.trimmingCharacters(in: .whitespacesAndNewlines)
+            if windowInfo != lastActiveWindowId {
+                lastActiveWindowId = windowInfo
+                
+                // Get the current workspace
+                if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
+                    let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if workspace != lastActiveWorkspace {
+                        lastActiveWorkspace = workspace
+                        print("Active window: \(windowInfo) in workspace: \(workspace)")
+                    }
+                }
+            }
         }
         
         guard let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) else {
