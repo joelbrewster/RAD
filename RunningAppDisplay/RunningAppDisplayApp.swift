@@ -299,9 +299,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
         let spacing: CGFloat = 8  // Spacing between icons
         let groupSpacing: CGFloat = 12  // Space between workspace groups
-        let horizontalPadding: CGFloat = 16  // Increased edge padding
+        let horizontalPadding: CGFloat = 16  // Edge padding
         let verticalPadding: CGFloat = 4  // Vertical padding
-        let shadowPadding: CGFloat = 0
+        let workspaceNumberWidth: CGFloat = 16  // Width for workspace number
+        let shadowPadding: CGFloat = 0  // Keep this for now
         
         // Calculate total number of windows and groups for sizing
         let totalWindows = groups.reduce(0) { $0 + $1.windows.count }
@@ -310,11 +311,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Calculate exact sizes with proper edge padding
         let contentWidth = CGFloat(totalWindows) * iconSize.width + 
                          CGFloat(totalWindows - 1) * spacing +  // Spacing between icons
-                         CGFloat(max(0, totalGroups - 1)) * (groupSpacing - spacing) +  // Extra space between groups
-                         CGFloat(totalGroups) * 16 + // Space for workspace numbers
+                         CGFloat(max(0, totalGroups - 1)) * groupSpacing +  // Space between groups
+                         CGFloat(totalGroups) * workspaceNumberWidth + // Space for workspace numbers
                          (horizontalPadding * 2)  // Padding on both left and right edges
         let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2)
-        let totalWidth = contentWidth + (shadowPadding * 2)  // Account for shadow padding on both sides
+        let totalWidth = contentWidth + (shadowPadding * 2)
         let totalHeight = contentHeight
         
         // Create container view
@@ -330,9 +331,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Create visual effect view for blur
         let blurView = NSVisualEffectView(frame: backgroundView.bounds)
-        blurView.blendingMode = .behindWindow
-        blurView.state = .active
-        blurView.material = .hudWindow
+        blurView.blendingMode = NSVisualEffectView.BlendingMode.behindWindow
+        blurView.state = NSVisualEffectView.State.active
+        blurView.material = NSVisualEffectView.Material.hudWindow
         blurView.alphaValue = 0.7
         blurView.wantsLayer = true
         blurView.isEmphasized = true
@@ -390,10 +391,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Keep the workspaceContainer exactly as it was, just constrain it to fill the visual wrapper
             workspaceContainer.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                workspaceContainer.topAnchor.constraint(equalTo: visualContainer.topAnchor),
-                workspaceContainer.bottomAnchor.constraint(equalTo: visualContainer.bottomAnchor),
-                workspaceContainer.leadingAnchor.constraint(equalTo: visualContainer.leadingAnchor),
-                workspaceContainer.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor)
+                workspaceContainer.topAnchor.constraint(equalTo: visualContainer.topAnchor, constant: 6),
+                workspaceContainer.bottomAnchor.constraint(equalTo: visualContainer.bottomAnchor, constant: -6),
+                workspaceContainer.leadingAnchor.constraint(equalTo: visualContainer.leadingAnchor, constant: 6),
+                workspaceContainer.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor, constant: -6)
             ])
             
             // Add workspace label with updated style for active state
@@ -429,9 +430,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 var appIcon: NSImage?
                 var isHidden = false
                 
-                                    if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
-                        // Check cache first
-                        let cacheKey = "\(app.bundleIdentifier ?? String(app.processIdentifier))" as NSString
+                if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)),
+                   app.bundleIdentifier != nil {
+                    // Check cache first
+                    let cacheKey = "\(app.bundleIdentifier ?? String(app.processIdentifier))" as NSString
                     if let cachedIcon = iconCache.object(forKey: cacheKey) {
                         appIcon = cachedIcon
                     } else {
@@ -477,19 +479,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 // Ensure we have an icon and size it correctly
                 guard let icon = appIcon else { continue }
                 
-                // Force resize the icon to exact size
-                let resizedIcon = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
-                resizedIcon.lockFocus()
-                NSGraphicsContext.current?.imageInterpolation = .high
-                icon.draw(in: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize),
-                         from: NSRect(x: 0, y: 0, width: icon.size.width, height: icon.size.height),
-                         operation: .sourceOver,
-                         fraction: 1.0)
-                resizedIcon.unlockFocus()
-                
+                // Create image view at exact size
                 let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize))
-                imageView.imageScaling = .scaleNone // Prevent any automatic scaling
-                imageView.image = resizedIcon
+                imageView.image = icon
+                imageView.imageScaling = .NSScaleProportionally
                 imageView.wantsLayer = true
                 imageView.layer?.cornerRadius = 6
                 imageView.layer?.masksToBounds = true
@@ -509,7 +502,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     // Focus the window after a short delay
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
-                            app.activate(options: .activateIgnoringOtherApps)
+                            app.activate()
                         }
                     }
                 }
