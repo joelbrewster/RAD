@@ -295,10 +295,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
         let spacing: CGFloat = 8  // Spacing between icons
-        let groupSpacing: CGFloat = 12  // Space between workspace groups
-        let horizontalPadding: CGFloat = 16  // Edge padding
+        let groupSpacing: CGFloat = 8  // Space between workspace groups
+        let horizontalPadding: CGFloat = 8  // Edge padding
         let verticalPadding: CGFloat = 4  // Vertical padding
-        let workspaceNumberWidth: CGFloat = 16  // Width for workspace number
+        let workspaceNumberWidth: CGFloat = 8  // Width for workspace number
         let shadowPadding: CGFloat = 0  // Keep this for now
         
         // Create container view with flexible width
