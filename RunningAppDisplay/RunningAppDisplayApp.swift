@@ -79,21 +79,21 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("Application did finish launching")
+        // print("Application did finish launching")
         let workspace = NSWorkspace.shared
         
         // Create floating window for running apps with larger height
         runningAppsWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 100), // Give it an initial size
-            styleMask: [.borderless],
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 100),
+            styleMask: [.borderless, .nonactivatingPanel],  // Add nonactivatingPanel
             backing: .buffered,
             defer: false
         )
         
-        print("Created window with initial frame: \(runningAppsWindow.frame)")
+        // print("Created window with initial frame: \(runningAppsWindow.frame)")
         
         // Update window setup
-        runningAppsWindow.level = .popUpMenu 
+        runningAppsWindow.level = .popUpMenu
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
@@ -103,10 +103,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.isMovableByWindowBackground = false
         runningAppsWindow.alphaValue = 1.0
         
-        // Make sure window is visible
-        runningAppsWindow.makeKeyAndOrderFront(nil)
+        // Make sure window is visible but don't make it key
+        runningAppsWindow.orderFront(nil)
         
-        print("Window setup complete - level: \(runningAppsWindow.level.rawValue), visible: \(runningAppsWindow.isVisible)")
+        // print("Window setup complete - level: \(runningAppsWindow.level.rawValue), visible: \(runningAppsWindow.isVisible)")
         
         // Keep existing activation observer
         workspaceNotificationObserver = workspace.notificationCenter.addObserver(
@@ -142,7 +142,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: nil) { [weak self] _ in
-                print("Active space changed")
+                // print("Active space changed")
                 self?.debouncedUpdateRunningApps(source: .spaceChange)
         }
         
@@ -153,23 +153,23 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         windowObservers = [
             // Window movement between spaces/screens
             center.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: nil) { [weak self] _ in 
-                print("Window moved to different screen")
+                // print("Window moved to different screen")
                 self?.debouncedUpdateRunningApps(source: .windowMove)
             },
             
             // Window ordering changes
             center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: nil) { [weak self] _ in 
-                print("Window ordering changed")
+                // print("Window ordering changed")
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             },
             
             // Window minimizing/unminimizing
             center.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: nil) { [weak self] _ in 
-                print("Window minimized")
+                // print("Window minimized")
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             },
             center.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: nil) { [weak self] _ in 
-                print("Window unminimized")
+                // print("Window unminimized")
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             }
         ]
@@ -227,16 +227,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     fileprivate func debouncedUpdateRunningApps(source: UpdateSource = .none) {
-        print("Debounce requested from source: \(source)")
+        // print("Debounce requested from source: \(source)")
         
         // If an update is in progress, only schedule follow-up if new source has higher priority
         if isUpdating {
             if source.priority > pendingUpdateSource.priority {
-                print("Update in progress, scheduling higher priority follow-up")
+                // print("Update in progress, scheduling higher priority follow-up")
                 pendingUpdateSource = source
                 needsFollowUpUpdate = true
             } else {
-                print("Update in progress, ignoring lower priority update")
+                // print("Update in progress, ignoring lower priority update")
             }
             return
         }
@@ -246,7 +246,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Schedule new update
         updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            print("Timer fired")
+            // print("Timer fired")
             guard let self = self else { return }
             
             self.isUpdating = true
@@ -255,7 +255,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Clear cache if it's too old or if this is a high-priority update
             if let timestamp = self.workspaceCacheTimestamp,
                (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
-                print("Cache invalidated due to time or priority")
+                // print("Cache invalidated due to time or priority")
                 self.workspaceCache = nil
                 self.workspaceCacheTimestamp = nil
             }
@@ -269,7 +269,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 
                 // If another update was requested while we were updating, process it
                 if self.needsFollowUpUpdate {
-                    print("Processing follow-up update with source: \(self.pendingUpdateSource)")
+                    // print("Processing follow-up update with source: \(self.pendingUpdateSource)")
                     self.needsFollowUpUpdate = false
                     let nextSource = self.pendingUpdateSource
                     self.pendingUpdateSource = .none
@@ -280,8 +280,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func updateRunningApps() {
-        print("Starting updateRunningApps")
-        print("Current dock position: \(currentDockPosition)")
+        // print("Starting updateRunningApps")
+        // print("Current dock position: \(currentDockPosition)")
         
         // Set critical window properties first
         runningAppsWindow.level = .popUpMenu
@@ -297,7 +297,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         // Get workspace groups
         let groups = getWorkspaceGroups()
-        print("Got \(groups.count) workspace groups with \(groups.reduce(0) { $0 + $1.windows.count }) total windows")
+        // print("Got \(groups.count) workspace groups with \(groups.reduce(0) { $0 + $1.windows.count }) total windows")
         
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
@@ -584,19 +584,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         ]
         
         for path in paths {
-            print("Trying path: \(path)")
             let task = Process()
             task.executableURL = URL(fileURLWithPath: path)
             task.arguments = args
             
-            // Set PATH environment variable
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:" + (env["PATH"] ?? "")
             task.environment = env
             
             let pipe = Pipe()
             task.standardOutput = pipe
-            
             let errorPipe = Pipe()
             task.standardError = errorPipe
             
@@ -608,20 +605,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 
                 if let errorOutput = String(data: errorData, encoding: .utf8), !errorOutput.isEmpty {
-                    print("Error output: \(errorOutput)")
+                    print("Error: \(errorOutput)")
                 }
                 
                 if let output = String(data: data, encoding: .utf8) {
-                    print("Success with path: \(path)")
-                    print("Output: \(output)")
                     return output
                 }
             } catch {
-                print("Failed with path \(path): \(error)")
                 continue
             }
         }
-        print("All paths failed")
         return nil
     }
 
@@ -633,10 +626,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         var appIcon: NSImage? {
             if let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
-                print("Getting icon for PID \(pid): \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
+                // print("Getting icon for PID \(pid): \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
                 return app.icon
             }
-            print("Failed to get icon for PID \(pid)")
+            // print("Failed to get icon for PID \(pid)")
             return nil
         }
     }
@@ -653,38 +646,38 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         if let cache = workspaceCache,
            let timestamp = workspaceCacheTimestamp,
            Date().timeIntervalSince(timestamp) < workspaceCacheLifetime {
-            print("Using cached workspace data (age: \(Date().timeIntervalSince(timestamp))s)")
+            // print("Using cached workspace data (age: \(Date().timeIntervalSince(timestamp))s)")
             return cache
         }
         
-        print("=== Getting Fresh Workspace Groups ===")
+        // print("=== Getting Fresh Workspace Groups ===")
         var groups: [WorkspaceGroup] = []
         
         // Get list of workspaces
         let workspaces = getWorkspaces()
-        print("Found \(workspaces.count) workspaces: \(workspaces)")
+        // print("Found \(workspaces.count) workspaces: \(workspaces)")
         
         // Get windows for each workspace
         for workspace in workspaces {
-            print("\nGetting windows for workspace: \(workspace)")
+            // print("\nGetting windows for workspace: \(workspace)")
             let windows = getWindowsForWorkspace(workspace)
             if !windows.isEmpty {
                 let windowInfos = windows.map { window -> WindowInfo in
                     let info = WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name, isHidden: false)
-                    print("Created WindowInfo - PID: \(info.pid), Name: \(info.appName)")
+                    // print("Created WindowInfo - PID: \(info.pid), Name: \(info.appName)")
                     if let app = NSRunningApplication(processIdentifier: pid_t(info.pid)) {
-                        print("Found running app: \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
+                        // print("Found running app: \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
                     } else {
-                        print("No running app found for PID \(info.pid)")
+                        // print("No running app found for PID \(info.pid)")
                     }
                     return info
                 }
                 groups.append(WorkspaceGroup(workspace: workspace, windows: windowInfos))
-                print("Found \(windows.count) windows in workspace \(workspace)")
+                // print("Found \(windows.count) windows in workspace \(workspace)")
             }
         }
         
-        print("\nUpdating cache with \(groups.count) workspace groups")
+        // print("\nUpdating cache with \(groups.count) workspace groups")
         workspaceCache = groups
         workspaceCacheTimestamp = Date()
         
@@ -693,7 +686,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     
     private func getWorkspaces() -> [String] {
         guard let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--all"]) else {
-            print("Failed to get workspace list")
+            // print("Failed to get workspace list")
             return []
         }
         
@@ -703,6 +696,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
+        // Get the focused window first
+        if let focusedWindow = runAerospaceCommand(args: ["list-windows", "--focused"]) {
+            print("Active window: \(focusedWindow)")
+        }
+        
         guard let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) else {
             return []
         }
@@ -717,16 +715,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     return nil
                 }
                 
-                // Use the app name to find the actual running app
                 let appName = parts[1].trimmingCharacters(in: .whitespaces)
-                print("Looking for app with name: \(appName)")
                 
                 // Find running app by name
                 if let app = NSWorkspace.shared.runningApplications.first(where: { 
                     $0.localizedName?.lowercased() == appName.lowercased() ||
                     $0.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
                 }) {
-                    print("Found running app: \(app.localizedName ?? "unknown"), PID: \(app.processIdentifier)")
                     return (pid: app.processIdentifier, title: parts[1], name: parts[2])
                 }
                 
@@ -744,11 +739,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 
                 if let bundleId = commonApps[appName],
                    let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
-                    print("Found app via bundle ID: \(app.localizedName ?? "unknown"), PID: \(app.processIdentifier)")
                     return (pid: app.processIdentifier, title: parts[1], name: parts[2])
                 }
                 
-                print("Could not find running app for: \(appName)")
                 return (pid: windowId, title: parts[1], name: parts[2])
             }
     }
@@ -782,7 +775,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     self?.debouncedUpdateRunningApps()
                 }
             } catch {
-                print("Error switching workspace: \(error)")
+                // print("Error switching workspace: \(error)")
             }
         }
     }
@@ -888,8 +881,8 @@ class ResizeHandleView: NSView {
     override func mouseDown(with event: NSEvent) {
         isDragging = true
         lastY = NSEvent.mouseLocation.y
-        print("=== DRAG START ===")
-        print("Initial Y: \(lastY)")
+        // print("=== DRAG START ===")
+        // print("Initial Y: \(lastY)")
     }
     
     override func mouseDragged(with event: NSEvent) {
@@ -904,7 +897,7 @@ class ResizeHandleView: NSView {
             if let appDelegate = NSApplication.shared.delegate as? RunningAppDisplayApp {
                 let sizeChange: CGFloat = (deltaY > 0 ? 15 : -15) // Back to original 15-pixel increments
                 let newSize = appDelegate.currentIconSize + sizeChange
-                print("Resizing to: \(newSize) (Delta: \(deltaY))")
+                // print("Resizing to: \(newSize) (Delta: \(deltaY))")
                 delegate?.handleResize(newSize: newSize)
             }
         }
@@ -918,8 +911,8 @@ class ResizeHandleView: NSView {
                 handleIndicator.animator().alphaValue = 0
             }
         }
-        print("=== DRAG END ===")
-        print("Final Y: \(NSEvent.mouseLocation.y)")
+        // print("=== DRAG END ===")
+        // print("Final Y: \(NSEvent.mouseLocation.y)")
     }
 }
 
@@ -977,11 +970,11 @@ class EdgeHandleView: NSView {
         let deltaX = currentX - startX
         
         if (isLeftHandle && deltaX < -10) {
-            print("Moving dock LEFT from \(currentPosition)")
+            // print("Moving dock LEFT from \(currentPosition)")
             delegate?.handleEdgeDrag(fromLeftEdge: true, currentPosition: currentPosition)
             isDragging = false
         } else if (!isLeftHandle && deltaX > 10) {
-            print("Moving dock RIGHT from \(currentPosition)")
+            // print("Moving dock RIGHT from \(currentPosition)")
             delegate?.handleEdgeDrag(fromLeftEdge: false, currentPosition: currentPosition)
             isDragging = false
         }
