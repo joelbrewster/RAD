@@ -289,9 +289,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.isOpaque = false
         runningAppsWindow.backgroundColor = .clear
 
-        // Cache common icons
-        let iconCache = NSCache<NSString, NSImage>()
-        
         // Get workspace groups
         let groups = getWorkspaceGroups()
         
@@ -304,29 +301,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let workspaceNumberWidth: CGFloat = 16  // Width for workspace number
         let shadowPadding: CGFloat = 0  // Keep this for now
         
-        // Calculate total number of windows and groups for sizing
-        let totalWindows = groups.reduce(0) { $0 + $1.windows.count }
-        let totalGroups = groups.count
-        
-        // Calculate exact sizes with proper edge padding
-        let contentWidth = CGFloat(totalWindows) * iconSize.width + 
-                         CGFloat(totalWindows - 1) * spacing +  // Spacing between icons
-                         CGFloat(max(0, totalGroups - 1)) * groupSpacing +  // Space between groups
-                         CGFloat(totalGroups) * workspaceNumberWidth + // Space for workspace numbers
-                         (horizontalPadding * 2)  // Padding on both left and right edges
-        let contentHeight: CGFloat = iconSize.height + (verticalPadding * 2)
-        let totalWidth = contentWidth + (shadowPadding * 2)
-        let totalHeight = contentHeight
-        
-        // Create container view
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight))
+        // Create container view with flexible width
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: currentIconSize + (verticalPadding * 2)))
         containerView.wantsLayer = true
         
-        // Create background view
-        let backgroundView = NSView(frame: NSRect(x: shadowPadding, 
-                                                y: shadowPadding,
-                                                width: contentWidth, 
-                                                height: contentHeight))
+        // Create background view that will size to fit content
+        let backgroundView = NSView(frame: containerView.bounds)
         backgroundView.wantsLayer = true
         
         // Create visual effect view for blur
@@ -354,10 +334,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Set up view hierarchy
         backgroundView.addSubview(blurView)
         
-        // Create main stack view with padding
+        // Create main stack view that will size to fit content
         let mainStackView = NSStackView(frame: NSRect(x: horizontalPadding, 
                                                     y: verticalPadding,
-                                                    width: contentWidth - (horizontalPadding * 2),
+                                                    width: 100,  // Initial width will be adjusted by content
                                                     height: iconSize.height))
         mainStackView.orientation = .horizontal
         mainStackView.spacing = groupSpacing
@@ -366,6 +346,31 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         blurView.addSubview(mainStackView)
         containerView.addSubview(backgroundView)
+        
+        // Setup constraints to make views resize with content
+        mainStackView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            // Main stack view constraints
+            mainStackView.leadingAnchor.constraint(equalTo: blurView.leadingAnchor, constant: horizontalPadding),
+            mainStackView.trailingAnchor.constraint(equalTo: blurView.trailingAnchor, constant: -horizontalPadding),
+            mainStackView.topAnchor.constraint(equalTo: blurView.topAnchor, constant: verticalPadding),
+            mainStackView.bottomAnchor.constraint(equalTo: blurView.bottomAnchor, constant: -verticalPadding),
+            
+            // Background view constraints
+            backgroundView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: shadowPadding),
+            backgroundView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -shadowPadding),
+            backgroundView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: shadowPadding),
+            backgroundView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -shadowPadding),
+            
+            // Blur view constraints
+            blurView.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor),
+            blurView.topAnchor.constraint(equalTo: backgroundView.topAnchor),
+            blurView.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor)
+        ])
         
         // Add apps for each group
         for group in groups {
@@ -408,15 +413,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             label.alignment = .center
             workspaceContainer.addArrangedSubview(label)
             
-            // Add separator before group (except first group)
-            if let firstGroup = groups.first, group.workspace != firstGroup.workspace {
-                let separator = NSView(frame: NSRect(x: -groupSpacing/2, y: 2, width: 1, height: iconSize.height - 4))
-                separator.wantsLayer = true
-                separator.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
-                workspaceContainer.addSubview(separator)
-            }
-            
-            // Create stack view for this group's icons
+            // Create stack view for this group's icons with proper constraints
             let groupStack = NSStackView(frame: .zero)
             groupStack.orientation = .horizontal
             groupStack.spacing = spacing
@@ -430,56 +427,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 var appIcon: NSImage?
                 var isHidden = false
                 
-                if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)),
-                   app.bundleIdentifier != nil {
-                    // Check cache first
-                    let cacheKey = "\(app.bundleIdentifier ?? String(app.processIdentifier))" as NSString
-                    if let cachedIcon = iconCache.object(forKey: cacheKey) {
-                        appIcon = cachedIcon
-                    } else {
-                        appIcon = app.icon
-                        if let icon = appIcon {
-                            iconCache.setObject(icon, forKey: cacheKey)
-                        }
-                    }
+                if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
+                    appIcon = app.icon
                     isHidden = app.isHidden
                 }
                 
-                // Fallback to system icons if no running app found
-                if appIcon == nil {
-                    let commonAppIcons = [
-                        "Firefox Developer Edition": "/Applications/Firefox Developer Edition.app",
-                        "Firefox": "/Applications/Firefox.app",
-                        "Safari": "/Applications/Safari.app",
-                        "Finder": "/System/Library/CoreServices/Finder.app",
-                        "Xcode": "/Applications/Xcode.app",
-                        "Music": "/System/Applications/Music.app",
-                        "Signal": "/Applications/Signal.app",
-                        "Cursor": "/Applications/Cursor.app"
-                    ]
-                    
-                    if let appPath = commonAppIcons[window.title] {
-                        let cacheKey = appPath as NSString
-                        if let cachedIcon = iconCache.object(forKey: cacheKey) {
-                            appIcon = cachedIcon
-                        } else {
-                            appIcon = NSWorkspace.shared.icon(forFile: appPath)
-                            if let icon = appIcon {
-                                iconCache.setObject(icon, forKey: cacheKey)
-                            }
-                        }
-                    }
-                }
-                
-                // Final fallback to generic app icon
-                if appIcon == nil {
-                    appIcon = NSWorkspace.shared.icon(for: UTType.application)
-                }
-                
-                // Ensure we have an icon and size it correctly
                 guard let icon = appIcon else { continue }
                 
-                // Create image view at exact size
                 let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize))
                 imageView.image = icon
                 imageView.imageScaling = .NSScaleProportionally
@@ -488,6 +442,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 imageView.layer?.masksToBounds = true
                 imageView.tag = Int(window.pid)
                 imageView.alphaValue = isHidden ? 0.5 : 1.0
+                
+                // Add size constraints to ensure exact size
+                imageView.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    imageView.widthAnchor.constraint(equalToConstant: currentIconSize),
+                    imageView.heightAnchor.constraint(equalToConstant: currentIconSize)
+                ])
                 
                 // Store workspace info for click handling
                 imageView.workspace = group.workspace
@@ -520,13 +481,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             case .left:
                 mainScreen.visibleFrame.minX - shadowPadding
             case .center:
-                (mainScreen.visibleFrame.width - totalWidth) / 2 + mainScreen.visibleFrame.minX
+                (mainScreen.visibleFrame.width - containerView.frame.width) / 2 + mainScreen.visibleFrame.minX
             case .right:
-                mainScreen.visibleFrame.maxX - totalWidth + shadowPadding
+                mainScreen.visibleFrame.maxX - containerView.frame.width + shadowPadding
             }
             
             let yPosition = mainScreen.visibleFrame.minY
-            let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
+            let newFrame = NSRect(x: xPosition, y: yPosition, width: containerView.frame.width, height: containerView.frame.height)
             
             runningAppsWindow.setFrame(newFrame, display: true)
         }
@@ -537,14 +498,14 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         leftHandle = EdgeHandleView(frame: NSRect(x: 0, 
                                                 y: shadowPadding,
                                                 width: 20,
-                                                height: contentHeight - shadowPadding),
+                                                height: containerView.frame.height - shadowPadding),
                                   isLeft: true)
         leftHandle?.delegate = self
         
-        rightHandle = EdgeHandleView(frame: NSRect(x: contentWidth, // Moved to the actual edge
+        rightHandle = EdgeHandleView(frame: NSRect(x: containerView.frame.width, // Moved to the actual edge
                                                  y: shadowPadding,
                                                  width: 20,
-                                                 height: contentHeight - shadowPadding),
+                                                 height: containerView.frame.height - shadowPadding),
                                    isLeft: false)
         rightHandle?.delegate = self
         
