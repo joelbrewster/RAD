@@ -297,7 +297,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let shadowPadding: CGFloat = 0  // Keep this for now
         
         // Create container view with flexible width
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: currentIconSize + (verticalPadding * 2)))
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: currentIconSize + (verticalPadding * 2)))
         containerView.wantsLayer = true
         
         // Create background view that will size to fit content
@@ -329,10 +329,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         backgroundView.addSubview(blurView)
         
         // Create main stack view that will size to fit content
-        let mainStackView = NSStackView(frame: NSRect(x: horizontalPadding, 
-                                                    y: verticalPadding,
-                                                    width: 100,  // Initial width will be adjusted by content
-                                                    height: iconSize.height))
+        let mainStackView = NSStackView(frame: .zero)
         mainStackView.orientation = .horizontal
         mainStackView.spacing = groupSpacing
         mainStackView.distribution = .gravityAreas
@@ -377,7 +374,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Just wrap the container in a visual style
             let visualContainer = NSView(frame: .zero)
             visualContainer.wantsLayer = true
-            visualContainer.layer?.cornerRadius = 6
+            visualContainer.layer?.cornerRadius = 12
             
             // Set background color based on active state
             let isActive = group.workspace == focusedWorkspace
@@ -470,19 +467,38 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             mainStackView.addArrangedSubview(visualContainer)
         }
         
+        // Layout views to get final sizes
+        mainStackView.layoutSubtreeIfNeeded()
+        containerView.layoutSubtreeIfNeeded()
+        
+        // Calculate actual width needed
+        let totalWidth = mainStackView.fittingSize.width + (horizontalPadding * 2)
+        let totalHeight = mainStackView.fittingSize.height + (verticalPadding * 2)
+        
+        // Update container view size
+        containerView.setFrameSize(NSSize(width: totalWidth, height: totalHeight))
+        backgroundView.setFrameSize(containerView.frame.size)
+        blurView.setFrameSize(backgroundView.frame.size)
+        
         // Position window
         if let mainScreen = NSScreen.screens.first {
             let xPosition: CGFloat = switch currentDockPosition {
             case .left:
                 mainScreen.visibleFrame.minX - shadowPadding
             case .center:
-                (mainScreen.visibleFrame.width - containerView.frame.width) / 2 + mainScreen.visibleFrame.minX
+                (mainScreen.visibleFrame.width - totalWidth) / 2 + mainScreen.visibleFrame.minX
             case .right:
-                mainScreen.visibleFrame.maxX - containerView.frame.width + shadowPadding
+                mainScreen.visibleFrame.maxX - totalWidth + shadowPadding
             }
             
+            print("Positioning dock \(currentDockPosition) at x: \(xPosition)")
+            
             let yPosition = mainScreen.visibleFrame.minY
-            let newFrame = NSRect(x: xPosition, y: yPosition, width: containerView.frame.width, height: containerView.frame.height)
+            let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
+            
+            print("Setting window frame - x: \(xPosition), y: \(yPosition), width: \(totalWidth), height: \(totalHeight)")
+            print("Screen visible frame - x: \(mainScreen.visibleFrame.minX), y: \(mainScreen.visibleFrame.minY), width: \(mainScreen.visibleFrame.width), height: \(mainScreen.visibleFrame.height)")
+            print("Stack view size - width: \(mainStackView.fittingSize.width), height: \(mainStackView.fittingSize.height)")
             
             runningAppsWindow.setFrame(newFrame, display: true)
         }
@@ -614,10 +630,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 let windowInfos = windows.map { window -> WindowInfo in
                     let info = WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name)
                     // print("Created WindowInfo - PID: \(info.pid), Name: \(info.appName)")
-                    if let app = NSRunningApplication(processIdentifier: pid_t(info.pid)) {
-                        // print("Found running app: \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
+                    if let app = NSRunningApplication(processIdentifier: pid_t(info.pid)), app.icon != nil {
+                        // print("Found running app: \(app.localizedName ?? "unknown") with icon")
                     } else {
-                        // print("No running app found for PID \(info.pid)")
+                        // print("No running app or icon found for PID \(info.pid)")
                     }
                     return info
                 }
@@ -847,16 +863,23 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         rightHandle?.currentPosition = newPosition
         UserDefaults.standard.set(newPosition.rawValue, forKey: "dockPosition")
         
+        // Get the current window size
+        let currentWidth = runningAppsWindow.frame.width
+        
         // Calculate new window position
         let shadowOffset: CGFloat = 0
         let newX: CGFloat = switch newPosition {
         case .left:
             screen.visibleFrame.minX - shadowOffset
         case .center:
-            (screen.visibleFrame.width - runningAppsWindow.frame.width) / 2
+            (screen.visibleFrame.width - currentWidth) / 2
         case .right:
-            screen.visibleFrame.maxX - runningAppsWindow.frame.width + shadowOffset
+            screen.visibleFrame.maxX - currentWidth + shadowOffset
         }
+        
+        print("Dragging dock \(newPosition) at x: \(newX)")
+        print("Dragging window frame - x: \(newX), y: \(runningAppsWindow.frame.minY), width: \(currentWidth), height: \(runningAppsWindow.frame.height)")
+        print("Screen visible frame - x: \(screen.visibleFrame.minX), y: \(screen.visibleFrame.minY), width: \(screen.visibleFrame.width), height: \(screen.visibleFrame.height)")
         
         // Update window position before rebuild
         runningAppsWindow.setFrameOrigin(NSPoint(x: newX, y: runningAppsWindow.frame.minY))
