@@ -292,6 +292,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.isOpaque = false
         runningAppsWindow.backgroundColor = .clear
 
+        // Cache common icons
+        let iconCache = NSCache<NSString, NSImage>()
+        
         // Get workspace groups
         let groups = getWorkspaceGroups()
         print("Got \(groups.count) workspace groups with \(groups.reduce(0) { $0 + $1.windows.count }) total windows")
@@ -418,8 +421,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 var appIcon: NSImage?
                 var isHidden = false
                 
-                if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
-                    appIcon = app.icon
+                                    if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
+                        // Check cache first
+                        let cacheKey = "\(app.bundleIdentifier ?? String(app.processIdentifier))" as NSString
+                    if let cachedIcon = iconCache.object(forKey: cacheKey) {
+                        appIcon = cachedIcon
+                    } else {
+                        appIcon = app.icon
+                        if let icon = appIcon {
+                            iconCache.setObject(icon, forKey: cacheKey)
+                        }
+                    }
                     isHidden = app.isHidden
                 }
                 
@@ -437,7 +449,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     ]
                     
                     if let appPath = commonAppIcons[window.title] {
-                        appIcon = NSWorkspace.shared.icon(forFile: appPath)
+                        let cacheKey = appPath as NSString
+                        if let cachedIcon = iconCache.object(forKey: cacheKey) {
+                            appIcon = cachedIcon
+                        } else {
+                            appIcon = NSWorkspace.shared.icon(forFile: appPath)
+                            if let icon = appIcon {
+                                iconCache.setObject(icon, forKey: cacheKey)
+                            }
+                        }
                     }
                 }
                 
@@ -466,12 +486,14 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 imageView.onClick = { [weak self] imageView in
                     guard let workspace = imageView.workspace else { return }
                     
-                    // Switch to workspace
+                    // Switch to workspace first
                     self?.switchToWorkspace(workspace)
                     
-                    // Focus the window
-                    if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
-                        app.activate(options: .activateIgnoringOtherApps)
+                    // Focus the window after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
+                            app.activate(options: .activateIgnoringOtherApps)
+                        }
                     }
                 }
                 
@@ -725,15 +747,26 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     private func switchToWorkspace(_ workspace: String) {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/aerospace")
-        task.arguments = ["workspace", workspace]
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            print("Error switching workspace: \(error)")
+        // Run workspace switch async to not block UI
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/aerospace")
+            task.arguments = ["workspace", workspace]
+            
+            do {
+                try task.run()
+                task.waitUntilExit()
+                
+                // Small delay to ensure workspace switch completes
+                Thread.sleep(forTimeInterval: 0.1)
+                
+                // Now activate the window on the main thread
+                DispatchQueue.main.async {
+                    self?.debouncedUpdateRunningApps()
+                }
+            } catch {
+                print("Error switching workspace: \(error)")
+            }
         }
     }
 }
