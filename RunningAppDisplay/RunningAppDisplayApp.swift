@@ -388,6 +388,22 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             workspaceContainer.distribution = .gravityAreas
             workspaceContainer.alignment = .centerY
             
+            // Just wrap the container in a visual style
+            let visualContainer = NSView(frame: .zero)
+            visualContainer.wantsLayer = true
+            visualContainer.layer?.cornerRadius = 6
+            visualContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.15).cgColor
+            visualContainer.addSubview(workspaceContainer)
+            
+            // Keep the workspaceContainer exactly as it was, just constrain it to fill the visual wrapper
+            workspaceContainer.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                workspaceContainer.topAnchor.constraint(equalTo: visualContainer.topAnchor),
+                workspaceContainer.bottomAnchor.constraint(equalTo: visualContainer.bottomAnchor),
+                workspaceContainer.leadingAnchor.constraint(equalTo: visualContainer.leadingAnchor),
+                workspaceContainer.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor)
+            ])
+            
             // Add workspace label
             let label = NSTextField(frame: NSRect(x: 0, y: 0, width: 12, height: 14))
             label.stringValue = group.workspace
@@ -500,7 +516,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 groupStack.addArrangedSubview(imageView)
             }
             
-            mainStackView.addArrangedSubview(workspaceContainer)
+            // Add to main stack view using the visual wrapper
+            mainStackView.addArrangedSubview(visualContainer)
         }
         
         // Position window
