@@ -385,15 +385,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             workspaceContainer.alignment = .centerY
             
             // Just wrap the container in a visual style
-            let visualContainer = NSView(frame: .zero)
+            let visualContainer = NSVisualEffectView(frame: .zero)
+            visualContainer.blendingMode = .behindWindow
+            visualContainer.state = .active
+            visualContainer.material = .hudWindow
             visualContainer.wantsLayer = true
+            visualContainer.isEmphasized = true
+            visualContainer.appearance = NSApp.effectiveAppearance
             visualContainer.layer?.cornerRadius = 12
             
-            // Set background color based on active state
+            // Set opacity based on active state
             let isActive = group.workspace == focusedWorkspace
-            visualContainer.layer?.backgroundColor = isActive ? 
-                NSColor.windowBackgroundColor.withAlphaComponent(1).cgColor :
-                NSColor.windowBackgroundColor.withAlphaComponent(0.45).cgColor
+            visualContainer.alphaValue = isActive ? 1.0 : 0.45
             
             visualContainer.addSubview(workspaceContainer)
             
