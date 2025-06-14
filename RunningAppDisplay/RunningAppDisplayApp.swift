@@ -317,6 +317,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         blurView.appearance = NSApp.effectiveAppearance
         blurView.layer?.borderWidth = 0
         blurView.layer?.cornerRadius = 12
+        blurView.alphaValue = 1.0  // Background opacity
         
         // Set corner masking based on position
         switch currentDockPosition {
@@ -388,15 +389,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let visualContainer = NSVisualEffectView(frame: .zero)
             visualContainer.blendingMode = .behindWindow
             visualContainer.state = .active
-            visualContainer.material = .hudWindow
+            visualContainer.material = .toolTip
             visualContainer.wantsLayer = true
             visualContainer.isEmphasized = true
             visualContainer.appearance = NSApp.effectiveAppearance
             visualContainer.layer?.cornerRadius = 12
             
-            // Set opacity based on active state
+            // Set solid background with different visual weights
             let isActive = group.workspace == focusedWorkspace
-            visualContainer.alphaValue = isActive ? 1.0 : 0.45
+            visualContainer.alphaValue = isActive ? 1.0 : 0.85
+            visualContainer.layer?.backgroundColor = isActive ? 
+                NSColor(white: 0.3, alpha: 0.3).cgColor :
+                NSColor(white: 0.2, alpha: 0.2).cgColor
             
             visualContainer.addSubview(workspaceContainer)
             
