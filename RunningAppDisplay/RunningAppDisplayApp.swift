@@ -253,39 +253,29 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Cancel any pending timer
         updateWorkDebounceTimer?.invalidate()
         
-        // For high priority updates (like size/position changes), update immediately
-        if source.priority >= UpdateSource.windowMove.priority {
-            performUpdate(source: source)
-            return
-        }
-        
-        // For lower priority updates, debounce with a short delay
-        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            self?.performUpdate(source: source)
-        }
-    }
-    
-    private func performUpdate(source: UpdateSource) {
-        self.isUpdating = true
-        self.updateSource = source
-        
-        // Clear cache if it's too old or if this is a high-priority update
-        if let timestamp = self.workspaceCacheTimestamp,
-           (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
-            self.workspaceCache = nil
-            self.workspaceCacheTimestamp = nil
-        }
-        
-        // Perform the update on a background queue
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            self?.updateRunningApps()
+        // Schedule new update with longer interval
+        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
             
-            DispatchQueue.main.async {
-                self?.isUpdating = false
-                self?.updateSource = .none
+            self.isUpdating = true
+            self.updateSource = source
+            
+            // Clear cache if it's too old or if this is a high-priority update
+            if let timestamp = self.workspaceCacheTimestamp,
+               (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
+                self.workspaceCache = nil
+                self.workspaceCacheTimestamp = nil
+            }
+            
+            self.updateRunningApps()
+            
+            // Reset flags after a brief delay to ensure window updates are complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.isUpdating = false
+                self.updateSource = .none
                 
                 // If another update was requested while we were updating, process it
-                if let self = self, self.needsFollowUpUpdate {
+                if self.needsFollowUpUpdate {
                     self.needsFollowUpUpdate = false
                     let nextSource = self.pendingUpdateSource
                     self.pendingUpdateSource = .none
@@ -488,18 +478,13 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 imageView.layer?.masksToBounds = true
                 imageView.tag = Int(window.pid)
                 
-                // Scale the image on a background queue
-                DispatchQueue.global(qos: .userInteractive).async {
-                    let scaledImage = NSImage(size: NSSize(width: self.currentIconSize, height: self.currentIconSize))
-                    scaledImage.lockFocus()
-                    let drawRect = NSRect(x: 0, y: 0, width: self.currentIconSize, height: self.currentIconSize)
-                    icon.draw(in: drawRect, from: .zero, operation: .copy, fraction: 1.0)
-                    scaledImage.unlockFocus()
-                    
-                    DispatchQueue.main.async {
-                        imageView.image = scaledImage
-                    }
-                }
+                // Scale the image to fit the view size while maintaining aspect ratio
+                let scaledImage = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
+                scaledImage.lockFocus()
+                let drawRect = NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize)
+                icon.draw(in: drawRect, from: .zero, operation: .copy, fraction: 1.0)
+                scaledImage.unlockFocus()
+                imageView.image = scaledImage
                 
                 // Add size constraints to ensure exact size
                 imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -703,14 +688,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     private func getWorkspaces() -> [String] {
-        // Use the cache if it's still valid
-        if let cache = workspaceCache,
-           let timestamp = workspaceCacheTimestamp,
-           Date().timeIntervalSince(timestamp) < workspaceCacheLifetime {
-            return cache.map { $0.workspace }
-        }
-        
         guard let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--all"]) else {
+            // print("Failed to get workspace list")
             return []
         }
         
@@ -718,18 +697,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             
-        // Get all windows in one command instead of querying each workspace
-        let allWindowsOutput = runAerospaceCommand(args: ["list-windows", "--all"]) ?? ""
-        let windowsByWorkspace = Dictionary(grouping: allWindowsOutput.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }) { line -> String in
-                let parts = line.components(separatedBy: "|")
-                return parts.count > 3 ? parts[3].trimmingCharacters(in: .whitespaces) : ""
-            }
-            
         // Only return workspaces that have windows in them
         return allWorkspaces.filter { workspace in
-            windowsByWorkspace[workspace]?.isEmpty == false
+            if let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
+                let windows = windowOutput.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                return !windows.isEmpty
+            }
+            return false
         }
     }
     
