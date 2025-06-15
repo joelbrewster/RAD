@@ -768,6 +768,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func switchToWorkspace(_ workspace: String) {
+        // Hide tooltip immediately before switching workspace
+        let tooltipWindow = DockTooltipWindow.getSharedWindow()
+        DispatchQueue.main.async {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.1  // Faster fade out for space change
+                tooltipWindow.animator().alphaValue = 0.0
+            }
+        }
+        
         // Run workspace switch async to not block UI
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             let task = Process()
