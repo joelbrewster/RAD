@@ -30,11 +30,22 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         return .center  // Default to center
     }()
+    
+    var currentDockSize: DockSize = {
+        if let savedSize = UserDefaults.standard.string(forKey: "dockSize"),
+           let size = DockSize(rawValue: savedSize) {
+            return size
+        }
+        return .medium  // Default to medium
+    }()
+
     // PADDING VALUES TO CONSOLIDATE:
-    let currentIconSize: CGFloat = 32  // Fixed size
-    let horizontalPadding: CGFloat = 8  // [1] Main container edge padding (left/right)
-    let verticalPadding: CGFloat = 8    // [1] Main container edge padding (top/bottom)
-    let groupSpacing: CGFloat = 8       // [2] Space between workspace groups in main container
+    var currentIconSize: CGFloat { currentDockSize.iconSize }  // Dynamic size based on DockSize
+    
+    // Scale padding values based on icon size
+    var horizontalPadding: CGFloat { currentIconSize * 0.25 }  // [1] Main container edge padding (left/right)
+    var verticalPadding: CGFloat { currentIconSize * 0.25 }    // [1] Main container edge padding (top/bottom)
+    var groupSpacing: CGFloat { currentIconSize * 0.25 }       // [2] Space between workspace groups in main container
     let shadowPadding: CGFloat = 0      // [3] Shadow offset for window positioning
     
     // View references
@@ -301,7 +312,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let workspaceNumberWidth: CGFloat = 8  // Width for workspace number
         
         // Create container view that will size to fit content
-        let containerView = NSView(frame: .zero)
+        let containerView = DockContainerView(frame: .zero)
+        containerView.appDelegate = self
         containerView.wantsLayer = true
         
         // Create background view that will size to fit content
@@ -382,7 +394,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         for group in groups {
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
-            workspaceContainer.spacing = 2  // [4] Space between workspace number and icon group
+            workspaceContainer.spacing = currentIconSize * 0.0625  // [4] Space between workspace number and icon group (2px at 32px)
             workspaceContainer.distribution = .fill
             workspaceContainer.alignment = .centerY
             
@@ -426,7 +438,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             label.isBordered = false
             label.backgroundColor = .clear
             label.textColor = isActive ? .labelColor : .tertiaryLabelColor
-            label.font = NSFont.monospacedSystemFont(ofSize: 14, weight: isActive ? .bold : .medium)
+            label.font = NSFont.monospacedSystemFont(ofSize: currentIconSize * 0.4375, weight: isActive ? .bold : .medium) // Scales font with icon size (14pt at 32px)
             label.alignment = .center
             label.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
@@ -448,18 +460,33 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 var appIcon: NSImage?
                 
                 if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
-                    appIcon = app.icon
+                    // Special case for Calendar.app
+                    if window.appName.lowercased().contains("calendar") {
+                        if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
+                            appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+                        }
+                    } else {
+                        appIcon = app.icon
+                    }
                 }
                 
                 guard let icon = appIcon else { continue }
                 
                 let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize))
                 imageView.image = icon
-                imageView.imageScaling = .NSScaleProportionally
+                imageView.imageScaling = .scaleProportionallyUpOrDown
                 imageView.wantsLayer = true
-                imageView.layer?.cornerRadius = 6
+                imageView.layer?.cornerRadius = currentIconSize * 0.1875 // Scales corner radius with size (6px at 32px)
                 imageView.layer?.masksToBounds = true
                 imageView.tag = Int(window.pid)
+                
+                // Scale the image to fit the view size while maintaining aspect ratio
+                let scaledImage = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
+                scaledImage.lockFocus()
+                let drawRect = NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize)
+                icon.draw(in: drawRect, from: .zero, operation: .copy, fraction: 1.0)
+                scaledImage.unlockFocus()
+                imageView.image = scaledImage
                 
                 // Add size constraints to ensure exact size
                 imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -793,10 +820,88 @@ class ClickableImageView: NSImageView {
     }
 }
 
+enum DockSize: String {
+    case small = "small"
+    case medium = "medium"
+    case large = "large"
+    
+    var iconSize: CGFloat {
+        switch self {
+        case .small: return 24
+        case .medium: return 32
+        case .large: return 48
+        }
+    }
+}
+
 enum DockPosition: String {
     case left = "left"
     case center = "center"
     case right = "right"
+}
+
+class DockContainerView: NSView {
+    weak var appDelegate: RunningAppDisplayApp?
+    
+    override func rightMouseDown(with event: NSEvent) {
+        let menu = NSMenu()
+        menu.autoenablesItems = true
+        
+        // Size submenu
+        let sizeMenu = NSMenu()
+        let sizeMenuItem = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
+        sizeMenuItem.submenu = sizeMenu
+        
+        // Add size options
+        let sizes: [(title: String, size: DockSize)] = [
+            ("Small", .small),
+            ("Medium", .medium),
+            ("Large", .large)
+        ]
+        
+        for (title, size) in sizes {
+            let item = NSMenuItem(title: title, action: #selector(handleSizeSelection(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = size
+            item.state = appDelegate?.currentDockSize == size ? .on : .off
+            sizeMenu.addItem(item)
+        }
+        
+        // Position submenu
+        let positionMenu = NSMenu()
+        let positionMenuItem = NSMenuItem(title: "Position", action: nil, keyEquivalent: "")
+        positionMenuItem.submenu = positionMenu
+        
+        // Add position options
+        let positions: [(title: String, position: DockPosition)] = [
+            ("Left", .left),
+            ("Center", .center),
+            ("Right", .right)
+        ]
+        
+        for (title, position) in positions {
+            let item = NSMenuItem(title: title, action: #selector(handlePositionSelection(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = position
+            item.state = appDelegate?.currentDockPosition == position ? .on : .off
+            positionMenu.addItem(item)
+        }
+        
+        menu.addItem(sizeMenuItem)
+        menu.addItem(positionMenuItem)
+        
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+    
+    @objc private func handleSizeSelection(_ sender: NSMenuItem) {
+        guard let size = sender.representedObject as? DockSize else { return }
+        appDelegate?.updateDockSize(size)
+    }
+    
+    @objc private func handlePositionSelection(_ sender: NSMenuItem) {
+        guard let position = sender.representedObject as? DockPosition else { return }
+        appDelegate?.updateDockPosition(position)
+    }
 }
 
 protocol EdgeHandleDelegate: AnyObject {
@@ -864,23 +969,19 @@ class EdgeHandleView: NSView {
 
 extension RunningAppDisplayApp: EdgeHandleDelegate {
     func handleEdgeDrag(fromLeftEdge: Bool, currentPosition: DockPosition) {
+        updateDockPosition(fromLeftEdge ? 
+            (currentPosition == .right ? .center : .left) : 
+            (currentPosition == .left ? .center : .right))
+    }
+    
+    func updateDockSize(_ newSize: DockSize) {
+        currentDockSize = newSize
+        UserDefaults.standard.set(newSize.rawValue, forKey: "dockSize")
+        debouncedUpdateRunningApps()
+    }
+    
+    func updateDockPosition(_ newPosition: DockPosition) {
         guard let screen = NSScreen.main else { return }
-        
-        let newPosition: DockPosition
-        
-        if fromLeftEdge {
-            newPosition = switch currentPosition {
-                case .right: .center
-                case .center: .left
-                case .left: .left
-            }
-        } else {
-            newPosition = switch currentPosition {
-                case .left: .center
-                case .center: .right
-                case .right: .right
-            }
-        }
         
         // Update position state
         currentDockPosition = newPosition
@@ -909,10 +1010,6 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         case .right:
             screen.visibleFrame.maxX - totalWidth + shadowPadding
         }
-        
-        print("Dragging dock \(newPosition) at x: \(newX)")
-        print("Stack natural size - width: \(stackSize.width), height: \(stackSize.height)")
-        print("Screen visible frame - x: \(screen.visibleFrame.minX), y: \(screen.visibleFrame.minY), width: \(screen.visibleFrame.width), height: \(screen.visibleFrame.height)")
         
         // Update window frame in one operation
         let newFrame = NSRect(x: newX, 
