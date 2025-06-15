@@ -493,8 +493,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     imageView.heightAnchor.constraint(equalToConstant: currentIconSize)
                 ])
                 
-                // Store workspace info for click handling
+                // Store workspace info and app name for click handling
                 imageView.workspace = group.workspace
+                imageView.appName = window.appName
+                imageView.updateTooltipText()  // Update tooltip text immediately
                 
                 // Add click handler
                 imageView.onClick = { [weak self] imageView in
@@ -793,8 +795,77 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 // Add this class at the top level
 class ClickableImageView: NSImageView {
     var workspace: String?
+    var appName: String?
+    private var tooltipWindow: DockTooltipWindow {
+        return DockTooltipWindow.getSharedWindow()
+    }
     var onClick: ((ClickableImageView) -> Void)?
     var onRightClick: ((ClickableImageView) -> Void)?
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    // Update tooltip text when app name or workspace is set
+    func updateTooltipText() {
+        tooltipWindow.updateText("\(appName ?? "Unknown")\nWorkspace \(workspace ?? "Unknown")")
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        
+        // Update and position before showing
+        updateTooltipText()
+        positionTooltip()
+        
+        // Ensure window is in front and visible
+        tooltipWindow.orderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            tooltipWindow.animator().alphaValue = 1.0
+        }
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            tooltipWindow.animator().alphaValue = 0.0
+        }
+    }
+    
+    private func positionTooltip() {
+        guard let window = self.window else { return }
+        
+        // Get the screen that contains the icon
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        
+        // Convert our frame to screen coordinates
+        let screenFrame = window.convertToScreen(convert(bounds, to: nil))
+        
+        // Calculate tooltip position
+        let tooltipSize = tooltipWindow.frame.size
+        let tooltipX = screenFrame.midX - (tooltipSize.width / 2)
+        let tooltipY = screenFrame.maxY + 5 // 5px gap between icon and tooltip
+        
+        // Ensure tooltip stays within screen bounds
+        let finalX = max(screen.visibleFrame.minX + 5,
+                        min(tooltipX,
+                            screen.visibleFrame.maxX - tooltipSize.width - 5))
+        
+        let finalY = min(tooltipY + tooltipSize.height,
+                        screen.visibleFrame.maxY - 5)
+        
+        tooltipWindow.setFrameTopLeftPoint(NSPoint(x: finalX, y: finalY))
+    }
+    
+    deinit {
+        // No need to close the window since it's shared
+    }
     
     override func mouseDown(with event: NSEvent) {
         onClick?(self)
@@ -821,6 +892,19 @@ class ClickableImageView: NSImageView {
             }
         }
         onRightClick?(self)
+    }
+    
+    // Required for mouse tracking
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        
+        // Remove existing tracking areas
+        trackingAreas.forEach { removeTrackingArea($0) }
+        
+        // Add new tracking area
+        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways]
+        let trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(trackingArea)
     }
     
     private func createNewWindow() {
