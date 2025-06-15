@@ -765,7 +765,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         return false
     }
     
-    private func switchToWorkspace(_ workspace: String) {
+    func switchToWorkspace(_ workspace: String) {
         // Run workspace switch async to not block UI
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             let task = Process()
@@ -803,8 +803,61 @@ class ClickableImageView: NSImageView {
     override func rightMouseDown(with event: NSEvent) {
         if let app = NSRunningApplication(processIdentifier: pid_t(tag)) {
             print("Right clicked app: \(app.localizedName ?? "Unknown") in workspace: \(workspace ?? "Unknown")")
+            
+            // Switch to workspace first
+            if let workspace = workspace,
+               let appDelegate = NSApp.delegate as? RunningAppDisplayApp {
+                appDelegate.switchToWorkspace(workspace)
+            }
+            
+            // Focus the app after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                app.activate(options: .activateIgnoringOtherApps)
+                
+                // Try to create new window after app is activated
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.createNewWindow()
+                }
+            }
         }
         onRightClick?(self)
+    }
+    
+    private func createNewWindow() {
+        // Create the keyboard event for Command+N
+        let eventCallback: CGEventTapCallBack = { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
+            return Unmanaged.passRetained(event)
+        }
+        
+        // Create an event source
+        if let eventSource = CGEventSource(stateID: .hidSystemState) {
+            let nKeycode: CGKeyCode = 45  // 'n' key
+            
+            // Create key events
+            if let keyDownEvent = CGEvent(keyboardEventSource: eventSource, virtualKey: nKeycode, keyDown: true) {
+                keyDownEvent.flags = .maskCommand
+                
+                if let keyUpEvent = CGEvent(keyboardEventSource: eventSource, virtualKey: nKeycode, keyDown: false) {
+                    // Post the events
+                    keyDownEvent.post(tap: .cghidEventTap)
+                    keyUpEvent.post(tap: .cghidEventTap)
+                }
+            }
+        } else {
+            // If we can't create events, we need accessibility permissions
+            let alert = NSAlert()
+            alert.messageText = "Accessibility Permissions Required"
+            alert.informativeText = "To create new windows, RunningAppDisplay needs accessibility permissions. Please enable them in System Settings > Privacy & Security > Accessibility."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Cancel")
+            
+            if alert.runModal() == .alertFirstButtonReturn {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
     }
 }
 
