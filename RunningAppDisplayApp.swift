@@ -1,10 +1,12 @@
-private let workspaceCacheLifetime: TimeInterval = 2.0 // Cache valid for 2 seconds
+private let workspaceCacheLifetime: TimeInterval = 10.0 // Cache valid for 10 seconds
 private var workspaceListCache: [String]?
 private var workspaceListCacheTimestamp: Date?
 private var windowInfoCache: [String: [(pid: Int32, title: String, name: String)]] = [:]
 private var windowInfoCacheTimestamp: [String: Date] = [:]
 private var workspaceViews: [String: NSView] = [:]
 private var appImageViews: [Int32: ClickableImageView] = [:]
+private var isSpaceChanging = false
+private var isUpdatingOrMoving = false
 
 private func getWorkspaces() -> [String] {
     // Check cache first
@@ -21,23 +23,35 @@ private func getWorkspaces() -> [String] {
     let allWorkspaces = workspaceOutput.components(separatedBy: .newlines)
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
-        
-    // Only return workspaces that have windows in them
-    let activeWorkspaces = allWorkspaces.filter { workspace in
-        if let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
-            let windows = windowOutput.components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            return !windows.isEmpty
+    
+    // Use concurrent queue for window checks
+    let queue = DispatchQueue(label: "workspace.check.queue", attributes: .concurrent)
+    let group = DispatchGroup()
+    var activeWorkspaces: [(workspace: String, hasWindows: Bool)] = []
+    
+    for workspace in allWorkspaces {
+        group.enter()
+        queue.async {
+            let hasWindows = self.runAerospaceCommand(args: ["list-windows", "--workspace", workspace])
+                .map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+            activeWorkspaces.append((workspace: workspace, hasWindows: hasWindows))
+            group.leave()
         }
-        return false
     }
-
+    
+    group.wait()
+    
+    // Filter and sort workspaces
+    let result = activeWorkspaces
+        .filter { $0.hasWindows }
+        .map { $0.workspace }
+        .sorted()
+    
     // Update cache
-    workspaceListCache = activeWorkspaces
+    workspaceListCache = result
     workspaceListCacheTimestamp = Date()
     
-    return activeWorkspaces
+    return result
 }
 
 private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
@@ -48,26 +62,41 @@ private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title:
         return cached
     }
 
-    // Get the focused window first
-    if let focusedWindow = runAerospaceCommand(args: ["list-windows", "--focused"]) {
-        let windowInfo = focusedWindow.trimmingCharacters(in: .whitespacesAndNewlines)
-        if windowInfo != lastActiveWindowId {
-            lastActiveWindowId = windowInfo
-            
-            // Get the current workspace
-            if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
-                let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                if workspace != lastActiveWorkspace {
-                    lastActiveWorkspace = workspace
+    // Get focused window info concurrently
+    let group = DispatchGroup()
+    var focusedInfo: (windowId: String, workspace: String)?
+    
+    group.enter()
+    DispatchQueue.global(qos: .userInteractive).async {
+        if let focusedWindow = self.runAerospaceCommand(args: ["list-windows", "--focused"]) {
+            let windowInfo = focusedWindow.trimmingCharacters(in: .whitespacesAndNewlines)
+            if windowInfo != self.lastActiveWindowId {
+                self.lastActiveWindowId = windowInfo
+                
+                if let workspaceOutput = self.runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
+                    let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    focusedInfo = (windowId: windowInfo, workspace: workspace)
                 }
             }
         }
+        group.leave()
     }
     
-    guard let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) else {
+    // Get window list concurrently
+    var windowList: String?
+    group.enter()
+    DispatchQueue.global(qos: .userInteractive).async {
+        windowList = self.runAerospaceCommand(args: ["list-windows", "--workspace", workspace])
+        group.leave()
+    }
+    
+    group.wait()
+    
+    guard let windowOutput = windowList else {
         return []
     }
     
+    // Process window info
     let windows = windowOutput.components(separatedBy: .newlines)
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
@@ -95,6 +124,11 @@ private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title:
     windowInfoCache[workspace] = windows
     windowInfoCacheTimestamp[workspace] = Date()
     
+    // Update active workspace if needed
+    if let focusedInfo = focusedInfo, focusedInfo.workspace != lastActiveWorkspace {
+        lastActiveWorkspace = focusedInfo.workspace
+    }
+    
     return windows
 }
 
@@ -111,8 +145,12 @@ fileprivate func debouncedUpdateRunningApps(source: UpdateSource = .none) {
     // Cancel any pending timer
     updateWorkDebounceTimer?.invalidate()
     
-    // Use shorter interval for space changes
-    let interval = source == .spaceChange ? 0.1 : 0.3
+    // Set updating state and hide all tooltips immediately
+    isUpdatingOrMoving = true
+    hideAllTooltips()
+    
+    // Reduce debounce intervals further
+    let interval = source == .spaceChange ? 0.02 : 0.1
     
     // Schedule new update
     updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
@@ -121,65 +159,86 @@ fileprivate func debouncedUpdateRunningApps(source: UpdateSource = .none) {
         self.isUpdating = true
         self.updateSource = source
         
-        // Clear cache if it's too old or if this is a high-priority update
-        if let timestamp = self.workspaceCacheTimestamp,
-           (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
-            self.workspaceCache = nil
-            self.workspaceCacheTimestamp = nil
-        }
-        
-        self.updateRunningApps()
-        
-        // Pre-fetch adjacent workspaces after a space change
-        if source == .spaceChange {
-            self.preFetchAdjacentWorkspaces()
-        }
-        
-        // Reset flags after a brief delay to ensure window updates are complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.isUpdating = false
-            self.updateSource = .none
+        // Run update on background queue with higher priority
+        DispatchQueue.global(qos: .userInteractive).async {
+            // Pre-fetch adjacent workspaces before updating UI
+            if source == .spaceChange {
+                self.preFetchAdjacentWorkspaces()
+            }
             
-            // If another update was requested while we were updating, process it
-            if self.needsFollowUpUpdate {
-                self.needsFollowUpUpdate = false
-                let nextSource = self.pendingUpdateSource
-                self.pendingUpdateSource = .none
-                self.debouncedUpdateRunningApps(source: nextSource)
+            self.updateRunningApps()
+            
+            // Reset flags on main queue
+            DispatchQueue.main.async {
+                self.isUpdating = false
+                self.updateSource = .none
+                
+                // Wait a bit before re-enabling tooltips to ensure everything is stable
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.isUpdatingOrMoving = false
+                }
+                
+                // If another update was requested while we were updating, process it
+                if self.needsFollowUpUpdate {
+                    self.needsFollowUpUpdate = false
+                    let nextSource = self.pendingUpdateSource
+                    self.pendingUpdateSource = .none
+                    self.debouncedUpdateRunningApps(source: nextSource)
+                }
             }
         }
     }
 }
 
+private func hideAllTooltips() {
+    for (_, imageView) in appImageViews {
+        imageView.removeTooltip()
+    }
+}
+
 private func preFetchAdjacentWorkspaces() {
-    // Get current workspace
     guard let currentWorkspace = lastActiveWorkspace else { return }
     
     // Get all workspaces
     let workspaces = getWorkspaces()
     guard let currentIndex = workspaces.firstIndex(of: currentWorkspace) else { return }
     
-    // Pre-fetch adjacent workspaces in background
-    DispatchQueue.global(qos: .utility).async { [weak self] in
-        // Pre-fetch previous workspace
-        if currentIndex > 0 {
+    let group = DispatchGroup()
+    
+    // Pre-fetch previous workspace
+    if currentIndex > 0 {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
             let prevWorkspace = workspaces[currentIndex - 1]
-            _ = self?.getWindowsForWorkspace(prevWorkspace)
-        }
-        
-        // Pre-fetch next workspace
-        if currentIndex < workspaces.count - 1 {
-            let nextWorkspace = workspaces[currentIndex + 1]
-            _ = self?.getWindowsForWorkspace(nextWorkspace)
+            _ = self.getWindowsForWorkspace(prevWorkspace)
+            group.leave()
         }
     }
+    
+    // Pre-fetch next workspace
+    if currentIndex < workspaces.count - 1 {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let nextWorkspace = workspaces[currentIndex + 1]
+            _ = self.getWindowsForWorkspace(nextWorkspace)
+            group.leave()
+        }
+    }
+    
+    // Don't wait for pre-fetching to complete
 }
 
 func updateRunningApps() {
+    let startTime = CFAbsoluteTimeGetCurrent()
+    
+    // Hide all tooltips at the start of any update
+    hideAllTooltips()
+    
     // Get the focused workspace first
     var focusedWorkspace: String? = nil
     if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
         focusedWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        print("🔍 Getting focused workspace took: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - startTime))s")
     }
 
     // Set critical window properties first
@@ -192,7 +251,11 @@ func updateRunningApps() {
     runningAppsWindow.backgroundColor = .clear
 
     // Get workspace groups
+    let groupsStartTime = CFAbsoluteTimeGetCurrent()
     let groups = getWorkspaceGroups()
+    print("🔍 Getting workspace groups took: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - groupsStartTime))s")
+    
+    let layoutStartTime = CFAbsoluteTimeGetCurrent()
     
     // Create or reuse container view
     let containerView = runningAppsWindow.contentView?.subviews.first as? DockContainerView ?? {
@@ -407,12 +470,15 @@ func updateRunningApps() {
     
     // Force layout and update window size
     containerView.layoutSubtreeIfNeeded()
+    print("🔍 Layout and UI updates took: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - layoutStartTime))s")
+    
     let stackSize = mainStackView.fittingSize
     let totalWidth = stackSize.width + (horizontalPadding * 2)
     let totalHeight = stackSize.height + (verticalPadding * 2)
     
     // Update window position
     if let mainScreen = NSScreen.screens.first {
+        let positionStartTime = CFAbsoluteTimeGetCurrent()
         let xPosition: CGFloat = switch currentDockPosition {
         case .left:
             mainScreen.visibleFrame.minX - shadowPadding
@@ -425,5 +491,33 @@ func updateRunningApps() {
         let yPosition = mainScreen.visibleFrame.minY
         let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
         runningAppsWindow.setFrame(newFrame, display: true)
+        print("🔍 Window positioning took: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - positionStartTime))s")
+    }
+    
+    print("🔍 Total update time: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - startTime))s")
+}
+
+class ClickableImageView: NSImageView {
+    func removeTooltip() {
+        self.toolTip = nil
+    }
+    
+    func updateTooltipText() {
+        // Only set tooltip if we're completely stable
+        if let appDelegate = NSApp.delegate as? RunningAppDisplayApp,
+           !appDelegate.isUpdatingOrMoving {
+            self.toolTip = "\(appName) (\(workspace))"
+        } else {
+            removeTooltip()
+        }
+    }
+    
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // Remove tooltip if we're updating or moving
+        if let appDelegate = NSApp.delegate as? RunningAppDisplayApp,
+           appDelegate.isUpdatingOrMoving {
+            removeTooltip()
+        }
     }
 } 
