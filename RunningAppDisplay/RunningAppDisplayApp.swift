@@ -794,9 +794,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 class ClickableImageView: NSImageView {
     var workspace: String?
     var onClick: ((ClickableImageView) -> Void)?
+    var onRightClick: ((ClickableImageView) -> Void)?
     
     override func mouseDown(with event: NSEvent) {
         onClick?(self)
+    }
+    
+    override func rightMouseDown(with event: NSEvent) {
+        if let app = NSRunningApplication(processIdentifier: pid_t(tag)) {
+            print("Right clicked app: \(app.localizedName ?? "Unknown") in workspace: \(workspace ?? "Unknown")")
+        }
+        onRightClick?(self)
     }
 }
 
