@@ -949,8 +949,8 @@ enum DockSize: String {
     
     var iconSize: CGFloat {
         switch self {
-        case .small: return 24
-        case .medium: return 32
+        case .small: return 32
+        case .medium: return 40
         case .large: return 48
         }
     }
