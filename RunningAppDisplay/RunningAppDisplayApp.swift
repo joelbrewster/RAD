@@ -824,38 +824,33 @@ class ClickableImageView: NSImageView {
     }
     
     private func createNewWindow() {
-        // Create the keyboard event for Command+N
-        let eventCallback: CGEventTapCallBack = { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-            return Unmanaged.passRetained(event)
+        guard let eventSource = CGEventSource(stateID: .hidSystemState) else {
+            showAccessibilityAlert()
+            return
         }
         
-        // Create an event source
-        if let eventSource = CGEventSource(stateID: .hidSystemState) {
-            let nKeycode: CGKeyCode = 45  // 'n' key
+        // Simple Command+N
+        if let keyDownEvent = CGEvent(keyboardEventSource: eventSource, virtualKey: 45, keyDown: true) {
+            keyDownEvent.flags = .maskCommand
             
-            // Create key events
-            if let keyDownEvent = CGEvent(keyboardEventSource: eventSource, virtualKey: nKeycode, keyDown: true) {
-                keyDownEvent.flags = .maskCommand
-                
-                if let keyUpEvent = CGEvent(keyboardEventSource: eventSource, virtualKey: nKeycode, keyDown: false) {
-                    // Post the events
-                    keyDownEvent.post(tap: .cghidEventTap)
-                    keyUpEvent.post(tap: .cghidEventTap)
-                }
+            if let keyUpEvent = CGEvent(keyboardEventSource: eventSource, virtualKey: 45, keyDown: false) {
+                keyDownEvent.post(tap: .cghidEventTap)
+                keyUpEvent.post(tap: .cghidEventTap)
             }
-        } else {
-            // If we can't create events, we need accessibility permissions
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "To create new windows, RunningAppDisplay needs accessibility permissions. Please enable them in System Settings > Privacy & Security > Accessibility."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Cancel")
-            
-            if alert.runModal() == .alertFirstButtonReturn {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                    NSWorkspace.shared.open(url)
-                }
+        }
+    }
+    
+    private func showAccessibilityAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permissions Required"
+        alert.informativeText = "To create new windows, RunningAppDisplay needs accessibility permissions. Please enable them in System Settings > Privacy & Security > Accessibility."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Cancel")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
             }
         }
     }
