@@ -16,8 +16,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var workspaceNotificationObserver: Any?
     var appearanceObserver: Any?
     var terminationObserver: Any?
-    var leftHandle: EdgeHandleView?
-    var rightHandle: EdgeHandleView?
     var recentAppOrder: [String] = []  // Track app usage order by bundle ID
     var updateWorkDebounceTimer: Timer?
     var isUpdating: Bool = false
@@ -563,25 +561,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         runningAppsWindow.contentView = containerView
         
-        // Add edge handles
-        leftHandle = EdgeHandleView(frame: NSRect(x: 0, 
-                                                y: shadowPadding,
-                                                width: 20,
-                                                height: containerView.frame.height - shadowPadding),
-                                  isLeft: true)
-        leftHandle?.delegate = self
-        
-        rightHandle = EdgeHandleView(frame: NSRect(x: containerView.frame.width, // Moved to the actual edge
-                                                 y: shadowPadding,
-                                                 width: 20,
-                                                 height: containerView.frame.height - shadowPadding),
-                                   isLeft: false)
-        rightHandle?.delegate = self
-        
-        if let left = leftHandle, let right = rightHandle {
-            containerView.addSubview(left)
-            containerView.addSubview(right)
-        }
+
     }
     
     deinit {
@@ -904,76 +884,9 @@ class DockContainerView: NSView {
     }
 }
 
-protocol EdgeHandleDelegate: AnyObject {
-    func handleEdgeDrag(fromLeftEdge: Bool, currentPosition: DockPosition)
-}
 
-class EdgeHandleView: NSView {
-    weak var delegate: EdgeHandleDelegate?
-    private var isDragging = false
-    private var startX: CGFloat = 0
-    private let isLeftHandle: Bool
-    var currentPosition: DockPosition = .right  // Start at right by default
-    
-    init(frame: NSRect, isLeft: Bool) {
-        self.isLeftHandle = isLeft
-        super.init(frame: frame)
-        wantsLayer = true
-        
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    override func mouseEntered(with event: NSEvent) {
-        NSCursor.resizeLeftRight.push()
-    }
-    
-    override func mouseExited(with event: NSEvent) {
-        NSCursor.pop()
-    }
-    
-    override func mouseDown(with event: NSEvent) {
-        isDragging = true
-        startX = NSEvent.mouseLocation.x
-    }
-    
-    override func mouseDragged(with event: NSEvent) {
-        guard isDragging else { return }
-        let currentX = NSEvent.mouseLocation.x
-        let deltaX = currentX - startX
-        
-        if (isLeftHandle && deltaX < -10) {
-            // print("Moving dock LEFT from \(currentPosition)")
-            delegate?.handleEdgeDrag(fromLeftEdge: true, currentPosition: currentPosition)
-            isDragging = false
-        } else if (!isLeftHandle && deltaX > 10) {
-            // print("Moving dock RIGHT from \(currentPosition)")
-            delegate?.handleEdgeDrag(fromLeftEdge: false, currentPosition: currentPosition)
-            isDragging = false
-        }
-    }
-    
-    override func mouseUp(with event: NSEvent) {
-        isDragging = false
-    }
-}
 
-extension RunningAppDisplayApp: EdgeHandleDelegate {
-    func handleEdgeDrag(fromLeftEdge: Bool, currentPosition: DockPosition) {
-        updateDockPosition(fromLeftEdge ? 
-            (currentPosition == .right ? .center : .left) : 
-            (currentPosition == .left ? .center : .right))
-    }
-    
+extension RunningAppDisplayApp {
     func updateDockSize(_ newSize: DockSize) {
         currentDockSize = newSize
         UserDefaults.standard.set(newSize.rawValue, forKey: "dockSize")
@@ -985,8 +898,6 @@ extension RunningAppDisplayApp: EdgeHandleDelegate {
         
         // Update position state
         currentDockPosition = newPosition
-        leftHandle?.currentPosition = newPosition
-        rightHandle?.currentPosition = newPosition
         UserDefaults.standard.set(newPosition.rawValue, forKey: "dockPosition")
         
         // Force layout to get correct size
