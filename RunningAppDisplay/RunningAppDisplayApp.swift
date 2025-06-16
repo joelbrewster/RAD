@@ -156,14 +156,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 self?.debouncedUpdateRunningApps(source: .appChange)
         }
         
-        // Add observers for workspace changes
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil,
-            queue: nil) { [weak self] _ in
-                // print("Active space changed")
-                self?.debouncedUpdateRunningApps(source: .spaceChange)
-        }
+        // Modify the workspace change observer
+        // Remove workspace change observer - we handle this directly in switchToWorkspace
         
         // Add observers for window changes using NSNotificationCenter.default
         let center = NotificationCenter.default
@@ -768,17 +762,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func switchToWorkspace(_ workspace: String) {
-        // Hide tooltip immediately before switching workspace
-        let tooltipWindow = DockTooltipWindow.getSharedWindow()
-        DispatchQueue.main.async {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.1  // Faster fade out for space change
-                tooltipWindow.animator().alphaValue = 0.0
-            }
+        // Hide tooltip immediately without animation
+        ClickableImageView.hideTooltip()
+        
+        // Update UI immediately
+        DispatchQueue.main.async { [self] in
+            // Update indicators immediately with the target workspace
+            updateWorkspaceIndicators(focusedWorkspace: workspace)
         }
         
-        // Run workspace switch async to not block UI
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+        // Switch workspace in background
+        DispatchQueue.global(qos: .userInteractive).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/aerospace")
             task.arguments = ["workspace", workspace]
@@ -786,18 +780,56 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             do {
                 try task.run()
                 task.waitUntilExit()
-                
-                // Small delay to ensure workspace switch completes
-                Thread.sleep(forTimeInterval: 0.1)
-                
-                // Now activate the window on the main thread
-                DispatchQueue.main.async {
-                    self?.debouncedUpdateRunningApps()
-                }
             } catch {
                 // print("Error switching workspace: \(error)")
             }
         }
+    }
+    
+    private func updateWorkspaceIndicators(focusedWorkspace: String? = nil) {
+        // Use provided workspace or get current one
+        let workspace: String
+        if let provided = focusedWorkspace {
+            workspace = provided
+        } else if let current = runAerospaceCommand(args: ["list-workspaces", "--focused"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines) {
+            workspace = current
+        } else {
+            return
+        }
+        
+        // Cache appearance check
+        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        
+        // Prepare colors and fonts
+        let activeOpacity: CGFloat = isDarkMode ? 0.4 : 0.8
+        let inactiveOpacity: CGFloat = isDarkMode ? 0.1 : 0.4
+        let activeColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: activeOpacity).cgColor
+        let inactiveColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: inactiveOpacity).cgColor
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)  // Disable implicit animations
+        
+        // Direct layer manipulation
+        mainStackView?.arrangedSubviews.forEach { view in
+            guard let container = view.subviews.first?.subviews.first as? NSStackView,
+                  let label = container.arrangedSubviews.first as? NSTextField else { return }
+            
+            let isActive = label.stringValue == workspace
+            view.layer?.backgroundColor = isActive ? activeColor : inactiveColor
+            
+            // Update label without animation
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            label.textColor = isActive ? .labelColor : .tertiaryLabelColor
+            label.font = NSFont.monospacedSystemFont(
+                ofSize: currentIconSize * 0.4375,
+                weight: isActive ? .bold : .medium
+            )
+            NSAnimationContext.endGrouping()
+        }
+        
+        CATransaction.commit()
     }
 }
 
@@ -810,6 +842,12 @@ class ClickableImageView: NSImageView {
     }
     var onClick: ((ClickableImageView) -> Void)?
     var onRightClick: ((ClickableImageView) -> Void)?
+    
+    static func hideTooltip() {
+        // Hide tooltip without animation
+        let tooltipWindow = DockTooltipWindow.getSharedWindow()
+        tooltipWindow.alphaValue = 0.0
+    }
     
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -859,7 +897,7 @@ class ClickableImageView: NSImageView {
         // Calculate tooltip position
         let tooltipSize = tooltipWindow.frame.size
         let tooltipX = screenFrame.midX - (tooltipSize.width / 2)
-        let tooltipY = screenFrame.maxY + 5 // 5px gap between icon and tooltip
+        let tooltipY = screenFrame.maxY + 20 // Increased gap to move tooltip up
         
         // Ensure tooltip stays within screen bounds
         let finalX = max(screen.visibleFrame.minX + 5,

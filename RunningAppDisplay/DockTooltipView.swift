@@ -16,7 +16,7 @@ class DockTooltipView: NSView {
         
         // Create the label
         label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.font = .menuBarFont(ofSize: 15)  // Standard menu bar font size
         label.textColor = .labelColor
         label.backgroundColor = .clear
         label.alignment = .center
@@ -76,23 +76,54 @@ class DockTooltipView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        
         // Create path for rounded rectangle with arrow
         let path = NSBezierPath()
         
         // Start at bottom center (arrow tip)
         path.move(to: NSPoint(x: bounds.midX, y: 0))
         
-        // Draw arrow to bottom left of rounded rect
+        // Draw arrow and rounded rectangle in one continuous path
         path.line(to: NSPoint(x: bounds.midX - arrowHeight, y: arrowHeight))
         
-        // Draw rounded rectangle
-        let rectBounds = NSRect(x: 0, y: arrowHeight, width: bounds.width, height: bounds.height - arrowHeight)
-        let roundedRect = NSBezierPath(roundedRect: rectBounds, xRadius: cornerRadius, yRadius: cornerRadius)
-        path.append(roundedRect)
+        // Draw left side
+        path.line(to: NSPoint(x: cornerRadius, y: arrowHeight))
+        path.appendArc(withCenter: NSPoint(x: cornerRadius, y: arrowHeight + cornerRadius),
+                      radius: cornerRadius,
+                      startAngle: 270,
+                      endAngle: 180,
+                      clockwise: true)
         
-        // Draw arrow to bottom right
+        // Draw left edge
+        path.line(to: NSPoint(x: 0, y: bounds.height - cornerRadius))
+        
+        // Draw top left corner
+        path.appendArc(withCenter: NSPoint(x: cornerRadius, y: bounds.height - cornerRadius),
+                      radius: cornerRadius,
+                      startAngle: 180,
+                      endAngle: 90,
+                      clockwise: true)
+        
+        // Draw top edge
+        path.line(to: NSPoint(x: bounds.width - cornerRadius, y: bounds.height))
+        
+        // Draw top right corner
+        path.appendArc(withCenter: NSPoint(x: bounds.width - cornerRadius, y: bounds.height - cornerRadius),
+                      radius: cornerRadius,
+                      startAngle: 90,
+                      endAngle: 0,
+                      clockwise: true)
+        
+        // Draw right edge
+        path.line(to: NSPoint(x: bounds.width, y: arrowHeight + cornerRadius))
+        
+        // Draw bottom right corner
+        path.appendArc(withCenter: NSPoint(x: bounds.width - cornerRadius, y: arrowHeight + cornerRadius),
+                      radius: cornerRadius,
+                      startAngle: 0,
+                      endAngle: 270,
+                      clockwise: true)
+        
+        // Complete the arrow
         path.line(to: NSPoint(x: bounds.midX + arrowHeight, y: arrowHeight))
         path.line(to: NSPoint(x: bounds.midX, y: 0))
         
