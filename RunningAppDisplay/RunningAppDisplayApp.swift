@@ -702,16 +702,38 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     
     private func getWorkspaces() -> [String] {
         guard let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--all"]) else {
-            // print("Failed to get workspace list")
             return []
         }
         
-        let allWorkspaces = workspaceOutput.components(separatedBy: .newlines)
+        // Get all workspaces and clean up whitespace
+        var workspaces = workspaceOutput.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-            
+        
+        // Separate numeric and non-numeric workspaces
+        var numericWorkspaces: [(index: Int, name: String, value: Int)] = []
+        var nonNumericWorkspaces: [String] = []
+        
+        for (index, workspace) in workspaces.enumerated() {
+            if let num = Int(workspace) {
+                numericWorkspaces.append((index, workspace, num))
+            } else {
+                nonNumericWorkspaces.append(workspace)
+            }
+        }
+        
+        // Sort numeric workspaces with 0 after 9
+        numericWorkspaces.sort { a, b in
+            let aValue = a.value == 0 ? 10 : a.value
+            let bValue = b.value == 0 ? 10 : b.value
+            return aValue < bValue
+        }
+        
+        // Reconstruct the list with numeric workspaces first, then non-numeric
+        workspaces = numericWorkspaces.map { $0.name } + nonNumericWorkspaces
+        
         // Only return workspaces that have windows in them
-        return allWorkspaces.filter { workspace in
+        return workspaces.filter { workspace in
             if let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
                 let windows = windowOutput.components(separatedBy: .newlines)
                     .map { $0.trimmingCharacters(in: .whitespaces) }
