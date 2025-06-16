@@ -504,7 +504,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     imageView.wantsLayer = true
                     imageView.layer?.cornerRadius = currentIconSize * 0.1875 // Scales corner radius with size (6px at 32px)
                     imageView.layer?.masksToBounds = true
-                    imageView.tag = Int(window.pid)
+                    
+                    // Store the window ID
+                    imageView.tag = window.windowId
                     
                     // Scale the image to fit the view size while maintaining aspect ratio
                     let scaledImage = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
@@ -530,15 +532,22 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     imageView.onClick = { [weak self] imageView in
                         guard let workspace = imageView.workspace else { return }
                         
-                        // Switch to workspace first
-                        self?.switchToWorkspace(workspace)
+                        // First log the target workspace
+                        print("\n=== Click Info ===")
+                        print("Target workspace: \(workspace)")
+                        print("Window ID to activate: \(imageView.tag)")
+                        print("App Name: \(imageView.appName ?? "unknown")")
                         
-                        // Focus the window after a short delay
+                        // Switch to workspace first
+                        self?.runAerospaceCommand(args: ["workspace", workspace])
+                        
+                        // After a brief delay, focus the window
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
-                                app.activate()
-                            }
+                            print("Focusing window \(imageView.tag)")
+                            self?.runAerospaceCommand(args: ["focus", "--window-id", "\(imageView.tag)"])
                         }
+                        
+                        print("==================\n")
                     }
                     
                     groupStack.addArrangedSubview(imageView)
@@ -653,16 +662,35 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
 
     struct WindowInfo: Codable {
+        let windowId: Int
         let pid: Int
         let title: String
         let appName: String
         
+        init(line: String) {
+            // Parse line like: "12391 | Cursor | Git: Changes (2 files) — RAD"
+            let parts = line.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+            print("Parsing window info from line: \(line)")
+            print("Parts: \(parts)")
+            
+            // First part is the window ID
+            self.windowId = Int(parts[0]) ?? 0
+            print("Window ID: \(self.windowId)")
+            
+            // Second part is the app name
+            self.title = parts[1]
+            
+            // Third part (if exists) is the window title
+            self.appName = parts.count > 2 ? parts[2] : parts[1]
+            
+            // Store window ID as pid too
+            self.pid = self.windowId
+        }
+        
         var appIcon: NSImage? {
             if let app = NSRunningApplication(processIdentifier: pid_t(pid)) {
-                // print("Getting icon for PID \(pid): \(app.localizedName ?? "unknown"), Has icon: \(app.icon != nil)")
                 return app.icon
             }
-            // print("Failed to get icon for PID \(pid)")
             return nil
         }
     }
@@ -723,7 +751,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             let windows = getWindowsForWorkspace(workspace)
             if !windows.isEmpty {
                 let windowInfos = windows.map { window in
-                    WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name)
+                    let info = WindowInfo(line: window)
+                    print("Created WindowInfo - ID: \(info.windowId), App: \(info.title), Title: \(info.appName)")
+                    return info
                 }
                 return WorkspaceGroup(workspace: workspace, windows: windowInfos)
             }
@@ -749,50 +779,19 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         updateRunningApps()
     }
     
-    private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
-        // Get the focused window first
-        if let focusedWindow = runAerospaceCommand(args: ["list-windows", "--focused"]) {
-            let windowInfo = focusedWindow.trimmingCharacters(in: .whitespacesAndNewlines)
-            if windowInfo != lastActiveWindowId {
-                lastActiveWindowId = windowInfo
-                
-                // Get the current workspace
-                if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
-                    let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if workspace != lastActiveWorkspace {
-                        lastActiveWorkspace = workspace
-                        print("Active window: \(windowInfo) in workspace: \(workspace)")
-                    }
-                }
-            }
-        }
-        
+    private func getWindowsForWorkspace(_ workspace: String) -> [String] {
         guard let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) else {
             return []
         }
         
-        return windowOutput.components(separatedBy: .newlines)
+        let windows = windowOutput.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-            .compactMap { line -> (pid: Int32, title: String, name: String)? in
-                let parts = line.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-                guard parts.count >= 3,
-                      let windowId = Int32(parts[0]) else {
-                    return nil
-                }
-                
-                let appName = parts[1].trimmingCharacters(in: .whitespaces)
-                
-                // Find running app by name
-                if let app = NSWorkspace.shared.runningApplications.first(where: { 
-                    $0.localizedName?.lowercased() == appName.lowercased() ||
-                    $0.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
-                }) {
-                    return (pid: app.processIdentifier, title: parts[1], name: parts[2])
-                }
-                
-                return (pid: windowId, title: parts[1], name: parts[2])
-            }
+        
+        print("Raw windows in workspace \(workspace):")
+        windows.forEach { print($0) }
+        
+        return windows
     }
     
     private func shouldProcessWindowUpdate() -> Bool {
@@ -888,7 +887,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     
     private func getIconForWindow(_ window: WindowInfo) -> NSImage? {
         // Check cache first
-        if let cachedIcon = iconCache[window.pid],
+        if let cachedIcon = iconCache[window.windowId],
            let timestamp = iconCacheTimestamp,
            Date().timeIntervalSince(timestamp) < iconCacheLifetime {
             return cachedIcon
@@ -897,9 +896,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // If cache is expired or missing, get fresh icon
         var appIcon: NSImage?
         
+        // Try to find the app by name first
+        let appName = window.title  // The app name is in the title field now
+        
         // Special case for Calendar/iCal
-        if window.appName.lowercased().contains("calendar") {
-            // Try to get the static Calendar.app icon
+        if appName.lowercased().contains("calendar") {
             let calendarPaths = [
                 "/System/Applications/Calendar.app",
                 "/Applications/Calendar.app"
@@ -915,43 +916,63 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 }
             }
             
-            // Fallback to bundle identifier if path method fails
             if appIcon == nil {
                 if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
                     appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
-                    print("Using Calendar icon from bundle identifier")
                 }
             }
         }
         
-        // If not Calendar or if Calendar icon fetch failed, proceed with normal icon fetch
+        // If no icon yet, try to find the app by name
         if appIcon == nil {
-            if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
+            if let app = NSWorkspace.shared.runningApplications.first(where: { 
+                $0.localizedName?.lowercased() == appName.lowercased() ||
+                $0.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
+            }) {
                 // Try multiple methods to get the icon
                 if let icon = app.icon {
-                    // Direct icon from running app (most reliable)
                     appIcon = icon
                 } else if let bundleID = app.bundleIdentifier,
                           let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                    // Try getting icon from app bundle
                     appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
-                } else if let appURL = app.bundleURL {
-                    // Try getting icon from app's actual location
-                    appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
-                } else if let appPath = app.executableURL?.deletingLastPathComponent().path {
-                    // Last resort: try executable's parent directory
-                    appIcon = NSWorkspace.shared.icon(forFile: appPath)
+                }
+            }
+        }
+        
+        // If still no icon, try to find the app by common names
+        if appIcon == nil {
+            let commonApps = [
+                ("firefox", "org.mozilla.firefox"),
+                ("safari", "com.apple.Safari"),
+                ("chrome", "com.google.Chrome"),
+                ("terminal", "com.apple.Terminal"),
+                ("iterm", "com.googlecode.iterm2"),
+                ("notes", "com.apple.Notes"),
+                ("mail", "com.apple.mail"),
+                ("xcode", "com.apple.dt.Xcode"),
+                ("cursor", "com.xata.cursor"),
+                ("simulator", "com.apple.iphonesimulator"),
+                ("emacs", "org.gnu.Emacs"),
+                ("omnifocus", "com.omnigroup.OmniFocus3")
+            ]
+            
+            for (name, bundleId) in commonApps {
+                if appName.lowercased().contains(name) {
+                    if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+                        appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                        if appIcon != nil { break }
+                    }
                 }
             }
         }
         
         // Update cache if we got an icon
         if let icon = appIcon {
-            iconCache[window.pid] = icon
+            iconCache[window.windowId] = icon
             iconCacheTimestamp = Date()
         }
         
-        return appIcon
+        return appIcon ?? NSWorkspace.shared.icon(forFileType: "public.app")
     }
     
     // Add method to check for window changes
