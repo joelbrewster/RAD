@@ -174,33 +174,47 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Modify the workspace change observer
         // Remove workspace change observer - we handle this directly in switchToWorkspace
         
-        // Add observers for window changes using NSNotificationCenter.default
+        // Add observers for window changes using NotificationCenter.default
         let center = NotificationCenter.default
         
         // Store window observers to remove them later
         windowObservers = [
             // Window movement between spaces/screens
             center.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: nil) { [weak self] _ in 
-                // print("Window moved to different screen")
+                print("Window moved to different screen")
+                self?.invalidateWindowCache()
                 self?.debouncedUpdateRunningApps(source: .windowMove)
             },
             
             // Window ordering changes
             center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: nil) { [weak self] _ in 
-                // print("Window ordering changed")
+                print("Window ordering changed")
+                self?.invalidateWindowCache()
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             },
             
             // Window minimizing/unminimizing
             center.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: nil) { [weak self] _ in 
-                // print("Window minimized")
+                print("Window minimized")
+                self?.invalidateWindowCache()
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             },
             center.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: nil) { [weak self] _ in 
-                // print("Window unminimized")
+                print("Window unminimized")
+                self?.invalidateWindowCache()
                 self?.debouncedUpdateRunningApps(source: .windowOrder)
             }
         ]
+        
+        // Add workspace change observer
+        if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
+            lastActiveWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        // Add periodic update timer
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkForWindowChanges()
+        }
         
         // Initialize with current running apps
         let runningApps = workspace.runningApplications.filter { 
@@ -722,7 +736,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     private func invalidateWindowCache() {
+        print("Invalidating window cache")
         cachedWorkspaceGroups = nil
+        iconCache.removeAll()
+        iconCacheTimestamp = nil
     }
     
     private func handleWorkspaceChange(_ source: UpdateSource) {
@@ -795,6 +812,9 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Update UI immediately with the target workspace
         updateWorkspaceIndicators(focusedWorkspace: workspace)
         
+        // Invalidate cache before switching
+        invalidateWindowCache()
+        
         // Switch workspace in background
         updateQueue.async {
             let task = Process()
@@ -810,7 +830,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     self.debouncedUpdateRunningApps(source: .spaceChange)
                 }
             } catch {
-                // print("Error switching workspace: \(error)")
+                print("Error switching workspace: \(error)")
             }
         }
     }
@@ -877,31 +897,51 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // If cache is expired or missing, get fresh icon
         var appIcon: NSImage?
         
-        if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
-            // Try multiple methods to get the icon
-            if let icon = app.icon {
-                // Direct icon from running app (most reliable)
-                appIcon = icon
-            } else if let bundleID = app.bundleIdentifier,
-                      let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                // Try getting icon from app bundle
-                appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
-            } else if let appURL = app.bundleURL {
-                // Try getting icon from app's actual location
-                appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
-            } else if let appPath = app.executableURL?.deletingLastPathComponent().path {
-                // Last resort: try executable's parent directory
-                appIcon = NSWorkspace.shared.icon(forFile: appPath)
-            }
+        // Special case for Calendar/iCal
+        if window.appName.lowercased().contains("calendar") {
+            // Try to get the static Calendar.app icon
+            let calendarPaths = [
+                "/System/Applications/Calendar.app",
+                "/Applications/Calendar.app"
+            ]
             
-            // Special cases for known apps
-            if appIcon == nil {
-                if window.appName.lowercased().contains("calendar") {
-                    if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
-                        appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+            for path in calendarPaths {
+                if FileManager.default.fileExists(atPath: path) {
+                    appIcon = NSWorkspace.shared.icon(forFile: path)
+                    if appIcon != nil {
+                        print("Using static Calendar icon")
+                        break
                     }
                 }
-                // Add more special cases here if needed
+            }
+            
+            // Fallback to bundle identifier if path method fails
+            if appIcon == nil {
+                if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
+                    appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+                    print("Using Calendar icon from bundle identifier")
+                }
+            }
+        }
+        
+        // If not Calendar or if Calendar icon fetch failed, proceed with normal icon fetch
+        if appIcon == nil {
+            if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
+                // Try multiple methods to get the icon
+                if let icon = app.icon {
+                    // Direct icon from running app (most reliable)
+                    appIcon = icon
+                } else if let bundleID = app.bundleIdentifier,
+                          let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                    // Try getting icon from app bundle
+                    appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                } else if let appURL = app.bundleURL {
+                    // Try getting icon from app's actual location
+                    appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                } else if let appPath = app.executableURL?.deletingLastPathComponent().path {
+                    // Last resort: try executable's parent directory
+                    appIcon = NSWorkspace.shared.icon(forFile: appPath)
+                }
             }
         }
         
@@ -912,6 +952,27 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         
         return appIcon
+    }
+    
+    // Add method to check for window changes
+    private var lastWindowState: String = ""
+    
+    private func checkForWindowChanges() {
+        // Get current window state
+        var currentState = ""
+        for workspace in getSortedWorkspaces() {
+            if let windows = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
+                currentState += "\(workspace):\(windows)\n"
+            }
+        }
+        
+        // If state changed, update the UI
+        if currentState != lastWindowState {
+            print("Window state changed, updating UI")
+            lastWindowState = currentState
+            invalidateWindowCache()
+            debouncedUpdateRunningApps(source: .windowMove)
+        }
     }
 }
 
