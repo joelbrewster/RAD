@@ -78,6 +78,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private var lastWorkspaceData: [WorkspaceGroup]?
     private var isPreparingUpdate = false
     
+    // Cache for sorted workspaces since they don't change during runtime
+    private var sortedWorkspaces: [String]? = nil
+    // Cache for workspace groups, invalidated only when windows change
+    private var cachedWorkspaceGroups: [WorkspaceGroup]? = nil
+    
     fileprivate enum UpdateSource {
         case none
         case spaceChange
@@ -655,91 +660,76 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         var id: String { workspace }  // Conform to Identifiable using workspace as the id
     }
 
-    private func getWorkspaceGroups() -> [WorkspaceGroup] {
-        // Check if cache is valid
-        if let cache = workspaceCache,
-           let timestamp = workspaceCacheTimestamp,
-           Date().timeIntervalSince(timestamp) < workspaceCacheLifetime {
-            // print("Using cached workspace data (age: \(Date().timeIntervalSince(timestamp))s)")
-            return cache
+    private func getSortedWorkspaces() -> [String] {
+        if let cached = sortedWorkspaces {
+            return cached
         }
         
-        // print("=== Getting Fresh Workspace Groups ===")
-        var groups: [WorkspaceGroup] = []
-        
-        // Get list of workspaces
-        let workspaces = getWorkspaces()
-        // print("Found \(workspaces.count) workspaces: \(workspaces)")
-        
-        // Get windows for each workspace
-        for workspace in workspaces {
-            // print("\nGetting windows for workspace: \(workspace)")
-            let windows = getWindowsForWorkspace(workspace)
-            if !windows.isEmpty {
-                let windowInfos = windows.map { window -> WindowInfo in
-                    let info = WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name)
-                    // print("Created WindowInfo - PID: \(info.pid), Name: \(info.appName)")
-                    if let app = NSRunningApplication(processIdentifier: pid_t(info.pid)), app.icon != nil {
-                        // print("Found running app: \(app.localizedName ?? "unknown") with icon")
-                    } else {
-                        // print("No running app or icon found for PID \(info.pid)")
-                    }
-                    return info
-                }
-                groups.append(WorkspaceGroup(workspace: workspace, windows: windowInfos))
-                // print("Found \(windows.count) windows in workspace \(workspace)")
-            }
-        }
-        
-        // print("\nUpdating cache with \(groups.count) workspace groups")
-        workspaceCache = groups
-        workspaceCacheTimestamp = Date()
-        
-        return groups
-    }
-    
-    private func getWorkspaces() -> [String] {
-        guard let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--all"]) else {
+        // Get all workspaces first
+        guard let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--all"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else {
             return []
         }
         
-        // Get all workspaces and clean up whitespace
+        // Parse and sort workspaces
         var workspaces = workspaceOutput.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         
-        // Separate numeric and non-numeric workspaces
-        var numericWorkspaces: [(index: Int, name: String, value: Int)] = []
-        var nonNumericWorkspaces: [String] = []
-        
-        for (index, workspace) in workspaces.enumerated() {
-            if let num = Int(workspace) {
-                numericWorkspaces.append((index, workspace, num))
-            } else {
-                nonNumericWorkspaces.append(workspace)
+        // Sort workspaces (0-9, then alphabetical)
+        workspaces.sort { a, b in
+            let aNum = Int(a)
+            let bNum = Int(b)
+            
+            switch (aNum, bNum) {
+            case (nil, nil): return a < b
+            case (nil, _): return false
+            case (_, nil): return true
+            case (let a?, let b?):
+                let aVal = a == 0 ? 10 : a
+                let bVal = b == 0 ? 10 : b
+                return aVal < bVal
             }
         }
         
-        // Sort numeric workspaces with 0 after 9
-        numericWorkspaces.sort { a, b in
-            let aValue = a.value == 0 ? 10 : a.value
-            let bValue = b.value == 0 ? 10 : b.value
-            return aValue < bValue
+        sortedWorkspaces = workspaces
+        return workspaces
+    }
+
+    private func getWorkspaceGroups() -> [WorkspaceGroup] {
+        // Return cached groups if available
+        if let cached = cachedWorkspaceGroups {
+            return cached
         }
         
-        // Reconstruct the list with numeric workspaces first, then non-numeric
-        workspaces = numericWorkspaces.map { $0.name } + nonNumericWorkspaces
+        let workspaces = getSortedWorkspaces()
         
-        // Only return workspaces that have windows in them
-        return workspaces.filter { workspace in
-            if let windowOutput = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
-                let windows = windowOutput.components(separatedBy: .newlines)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                return !windows.isEmpty
+        // Create workspace groups
+        let groups = workspaces.compactMap { workspace in
+            let windows = getWindowsForWorkspace(workspace)
+            if !windows.isEmpty {
+                let windowInfos = windows.map { window in
+                    WindowInfo(pid: Int(window.pid), title: window.title, appName: window.name)
+                }
+                return WorkspaceGroup(workspace: workspace, windows: windowInfos)
             }
-            return false
+            return nil
         }
+        
+        // Cache the result
+        cachedWorkspaceGroups = groups
+        return groups
+    }
+    
+    private func invalidateWindowCache() {
+        cachedWorkspaceGroups = nil
+    }
+    
+    private func handleWorkspaceChange(_ source: UpdateSource) {
+        if source == .windowMove {
+            invalidateWindowCache()
+        }
+        updateRunningApps()
     }
     
     private func getWindowsForWorkspace(_ workspace: String) -> [(pid: Int32, title: String, name: String)] {
