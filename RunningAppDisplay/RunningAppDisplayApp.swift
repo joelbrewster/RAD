@@ -452,13 +452,30 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 var appIcon: NSImage?
                 
                 if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
-                    // Special case for Calendar.app
-                    if window.appName.lowercased().contains("calendar") {
-                        if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
-                            appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+                    // Try multiple methods to get the icon
+                    if let icon = app.icon {
+                        // Direct icon from running app (most reliable)
+                        appIcon = icon
+                    } else if let bundleID = app.bundleIdentifier,
+                              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                        // Try getting icon from app bundle
+                        appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                    } else if let appURL = app.bundleURL {
+                        // Try getting icon from app's actual location
+                        appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                    } else if let appPath = app.executableURL?.deletingLastPathComponent().path {
+                        // Last resort: try executable's parent directory
+                        appIcon = NSWorkspace.shared.icon(forFile: appPath)
+                    }
+                    
+                    // Special cases for known apps
+                    if appIcon == nil {
+                        if window.appName.lowercased().contains("calendar") {
+                            if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
+                                appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+                            }
                         }
-                    } else {
-                        appIcon = app.icon
+                        // Add more special cases here if needed
                     }
                 }
                 
@@ -692,12 +709,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let allWorkspaces = workspaceOutput.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-            .sorted { a, b in
-                // Handle special case for workspace "0" to come after "9"
-                if a == "0" && b != "0" { return false }  // "0" goes after non-"0"
-                if a != "0" && b == "0" { return true }   // non-"0" goes before "0"
-                return a < b  // Normal string comparison for other cases
-            }
             
         // Only return workspaces that have windows in them
         return allWorkspaces.filter { workspace in
