@@ -68,6 +68,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private var updateSource: UpdateSource = .none
     private var pendingUpdateSource: UpdateSource = .none
     
+    // Add icon cache
+    private var iconCache: [Int: NSImage] = [:]
+    private var iconCacheTimestamp: Date?
+    private let iconCacheLifetime: TimeInterval = 5.0 // Cache icons for 5 seconds
+    
+    // Add properties at top of class
+    private var updateQueue = DispatchQueue(label: "com.runningappdisplay.updates", qos: .userInteractive)
+    private var lastWorkspaceData: [WorkspaceGroup]?
+    private var isPreparingUpdate = false
+    
     fileprivate enum UpdateSource {
         case none
         case spaceChange
@@ -247,39 +257,62 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Cancel any pending timer
         updateWorkDebounceTimer?.invalidate()
         
-        // Schedule new update with longer interval
-        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+        // If we're just updating indicators, do it immediately
+        if source == .spaceChange {
+            if let focusedWorkspace = runAerospaceCommand(args: ["list-workspaces", "--focused"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines) {
+                updateWorkspaceIndicators(focusedWorkspace: focusedWorkspace)
+            }
+        }
+        
+        // Schedule data update with shorter interval
+        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             
             self.isUpdating = true
             self.updateSource = source
             
-            // Clear cache if it's too old or if this is a high-priority update
-            if let timestamp = self.workspaceCacheTimestamp,
-               (Date().timeIntervalSince(timestamp) >= self.workspaceCacheLifetime || source.priority >= UpdateSource.windowMove.priority) {
-                self.workspaceCache = nil
-                self.workspaceCacheTimestamp = nil
-            }
+            // Prepare data update in background
+            self.prepareWorkspaceUpdate()
+        }
+    }
+    
+    private func prepareWorkspaceUpdate() {
+        guard !isPreparingUpdate else { return }
+        isPreparingUpdate = true
+        
+        updateQueue.async { [weak self] in
+            guard let self = self else { return }
             
-            self.updateRunningApps()
+            // Get workspace data in background
+            let groups = self.getWorkspaceGroups()
             
-            // Reset flags after a brief delay to ensure window updates are complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                self.isUpdating = false
-                self.updateSource = .none
+            // Update UI on main thread
+            DispatchQueue.main.async {
+                self.lastWorkspaceData = groups
+                self.updateRunningApps(with: groups)
+                self.isPreparingUpdate = false
                 
-                // If another update was requested while we were updating, process it
-                if self.needsFollowUpUpdate {
-                    self.needsFollowUpUpdate = false
-                    let nextSource = self.pendingUpdateSource
-                    self.pendingUpdateSource = .none
-                    self.debouncedUpdateRunningApps(source: nextSource)
+                // Reset flags after a brief delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.isUpdating = false
+                    self.updateSource = .none
+                    
+                    // If another update was requested while we were updating, process it
+                    if self.needsFollowUpUpdate {
+                        self.needsFollowUpUpdate = false
+                        let nextSource = self.pendingUpdateSource
+                        self.pendingUpdateSource = .none
+                        self.debouncedUpdateRunningApps(source: nextSource)
+                    }
                 }
             }
         }
     }
     
-    func updateRunningApps() {
+    func updateRunningApps(with groups: [WorkspaceGroup]? = nil) {
+        let workspaceGroups = groups ?? lastWorkspaceData ?? getWorkspaceGroups()
+        
         // Get the focused workspace first
         var focusedWorkspace: String? = nil
         if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
@@ -295,9 +328,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.isOpaque = false
         runningAppsWindow.backgroundColor = .clear
 
-        // Get workspace groups
-        let groups = getWorkspaceGroups()
-        
         // Calculate dimensions
         let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
         let spacing: CGFloat = 4  // Spacing between icons
@@ -383,7 +413,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         ])}
         
         // Add apps for each group
-        for group in groups {
+        for group in workspaceGroups {
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
             workspaceContainer.spacing = currentIconSize * 0.0625  // [4] Space between workspace number and icon group (2px at 32px)
@@ -448,83 +478,52 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             
             // Add apps for this group
             for window in group.windows {
-                // Try to get icon from running app first
-                var appIcon: NSImage?
-                
-                if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
-                    // Try multiple methods to get the icon
-                    if let icon = app.icon {
-                        // Direct icon from running app (most reliable)
-                        appIcon = icon
-                    } else if let bundleID = app.bundleIdentifier,
-                              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                        // Try getting icon from app bundle
-                        appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
-                    } else if let appURL = app.bundleURL {
-                        // Try getting icon from app's actual location
-                        appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
-                    } else if let appPath = app.executableURL?.deletingLastPathComponent().path {
-                        // Last resort: try executable's parent directory
-                        appIcon = NSWorkspace.shared.icon(forFile: appPath)
-                    }
+                if let icon = getIconForWindow(window) {
+                    let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize))
+                    imageView.image = icon
+                    imageView.imageScaling = .scaleProportionallyUpOrDown
+                    imageView.wantsLayer = true
+                    imageView.layer?.cornerRadius = currentIconSize * 0.1875 // Scales corner radius with size (6px at 32px)
+                    imageView.layer?.masksToBounds = true
+                    imageView.tag = Int(window.pid)
                     
-                    // Special cases for known apps
-                    if appIcon == nil {
-                        if window.appName.lowercased().contains("calendar") {
-                            if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
-                                appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+                    // Scale the image to fit the view size while maintaining aspect ratio
+                    let scaledImage = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
+                    scaledImage.lockFocus()
+                    let drawRect = NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize)
+                    icon.draw(in: drawRect, from: .zero, operation: .copy, fraction: 1.0)
+                    scaledImage.unlockFocus()
+                    imageView.image = scaledImage
+                    
+                    // Add size constraints to ensure exact size
+                    imageView.translatesAutoresizingMaskIntoConstraints = false
+                    NSLayoutConstraint.activate([
+                        imageView.widthAnchor.constraint(equalToConstant: currentIconSize),
+                        imageView.heightAnchor.constraint(equalToConstant: currentIconSize)
+                    ])
+                    
+                    // Store workspace info and app name for click handling
+                    imageView.workspace = group.workspace
+                    imageView.appName = window.appName
+                    imageView.updateTooltipText()  // Update tooltip text immediately
+                    
+                    // Add click handler
+                    imageView.onClick = { [weak self] imageView in
+                        guard let workspace = imageView.workspace else { return }
+                        
+                        // Switch to workspace first
+                        self?.switchToWorkspace(workspace)
+                        
+                        // Focus the window after a short delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
+                                app.activate()
                             }
                         }
-                        // Add more special cases here if needed
                     }
-                }
-                
-                guard let icon = appIcon else { continue }
-                
-                let imageView = ClickableImageView(frame: NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize))
-                imageView.image = icon
-                imageView.imageScaling = .scaleProportionallyUpOrDown
-                imageView.wantsLayer = true
-                imageView.layer?.cornerRadius = currentIconSize * 0.1875 // Scales corner radius with size (6px at 32px)
-                imageView.layer?.masksToBounds = true
-                imageView.tag = Int(window.pid)
-                
-                // Scale the image to fit the view size while maintaining aspect ratio
-                let scaledImage = NSImage(size: NSSize(width: currentIconSize, height: currentIconSize))
-                scaledImage.lockFocus()
-                let drawRect = NSRect(x: 0, y: 0, width: currentIconSize, height: currentIconSize)
-                icon.draw(in: drawRect, from: .zero, operation: .copy, fraction: 1.0)
-                scaledImage.unlockFocus()
-                imageView.image = scaledImage
-                
-                // Add size constraints to ensure exact size
-                imageView.translatesAutoresizingMaskIntoConstraints = false
-                NSLayoutConstraint.activate([
-                    imageView.widthAnchor.constraint(equalToConstant: currentIconSize),
-                    imageView.heightAnchor.constraint(equalToConstant: currentIconSize)
-                ])
-                
-                // Store workspace info and app name for click handling
-                imageView.workspace = group.workspace
-                imageView.appName = window.appName
-                imageView.updateTooltipText()  // Update tooltip text immediately
-                
-                // Add click handler
-                imageView.onClick = { [weak self] imageView in
-                    guard let workspace = imageView.workspace else { return }
                     
-                    // Switch to workspace first
-                    self?.switchToWorkspace(workspace)
-                    
-                    // Focus the window after a short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        if let app = NSRunningApplication(processIdentifier: pid_t(imageView.tag)) {
-                            app.activate()
-                        }
-                    }
+                    groupStack.addArrangedSubview(imageView)
                 }
-                
-                groupStack.addArrangedSubview(imageView)
             }
             
             // Add to main stack view
@@ -573,8 +572,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         }
         
         runningAppsWindow.contentView = containerView
-        
-
     }
     
     deinit {
@@ -591,6 +588,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         for observer in windowObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        iconCache.removeAll()
     }
     
     private func runAerospaceCommand(args: [String]) -> String? {
@@ -804,14 +802,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Hide tooltip immediately without animation
         ClickableImageView.hideTooltip()
         
-        // Update UI immediately
-        DispatchQueue.main.async { [self] in
-            // Update indicators immediately with the target workspace
-            updateWorkspaceIndicators(focusedWorkspace: workspace)
-        }
+        // Update UI immediately with the target workspace
+        updateWorkspaceIndicators(focusedWorkspace: workspace)
         
         // Switch workspace in background
-        DispatchQueue.global(qos: .userInteractive).async {
+        updateQueue.async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/aerospace")
             task.arguments = ["workspace", workspace]
@@ -819,6 +814,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             do {
                 try task.run()
                 task.waitUntilExit()
+                
+                // Pre-fetch data for the new workspace
+                DispatchQueue.main.async {
+                    self.debouncedUpdateRunningApps(source: .spaceChange)
+                }
             } catch {
                 // print("Error switching workspace: \(error)")
             }
@@ -837,38 +837,91 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return
         }
         
-        // Cache appearance check
-        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        // Only update if we have a main stack view
+        guard let mainStackView = self.mainStackView else { return }
         
-        // Prepare colors and fonts
-        let activeOpacity: CGFloat = isDarkMode ? 0.4 : 0.8
-        let inactiveOpacity: CGFloat = isDarkMode ? 0.1 : 0.4
-        let activeColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: activeOpacity).cgColor
-        let inactiveColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: inactiveOpacity).cgColor
-        
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)  // Disable implicit animations
-        
-        // Direct layer manipulation
-        mainStackView?.arrangedSubviews.forEach { view in
-            guard let container = view.subviews.first?.subviews.first as? NSStackView,
-                  let label = container.arrangedSubviews.first as? NSTextField else { return }
+        DispatchQueue.main.async {
+            // Cache appearance check
+            let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             
-            let isActive = label.stringValue == workspace
-            view.layer?.backgroundColor = isActive ? activeColor : inactiveColor
+            // Prepare colors and fonts
+            let activeOpacity: CGFloat = isDarkMode ? 0.4 : 0.8
+            let inactiveOpacity: CGFloat = isDarkMode ? 0.1 : 0.4
+            let activeColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: activeOpacity).cgColor
+            let inactiveColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: inactiveOpacity).cgColor
             
-            // Update label without animation
-            NSAnimationContext.beginGrouping()
-            NSAnimationContext.current.duration = 0
-            label.textColor = isActive ? .labelColor : .tertiaryLabelColor
-            label.font = NSFont.monospacedSystemFont(
-                ofSize: currentIconSize * 0.4375,
-                weight: isActive ? .bold : .medium
-            )
-            NSAnimationContext.endGrouping()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)  // Disable implicit animations
+            
+            // Direct layer manipulation
+            mainStackView.arrangedSubviews.forEach { view in
+                guard let container = view.subviews.first?.subviews.first as? NSStackView,
+                      let label = container.arrangedSubviews.first as? NSTextField else { return }
+                
+                let isActive = label.stringValue == workspace
+                view.layer?.backgroundColor = isActive ? activeColor : inactiveColor
+                
+                // Update label without animation
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.current.duration = 0
+                label.textColor = isActive ? .labelColor : .tertiaryLabelColor
+                label.font = NSFont.monospacedSystemFont(
+                    ofSize: self.currentIconSize * 0.4375,
+                    weight: isActive ? .bold : .medium
+                )
+                NSAnimationContext.endGrouping()
+            }
+            
+            CATransaction.commit()
+        }
+    }
+    
+    private func getIconForWindow(_ window: WindowInfo) -> NSImage? {
+        // Check cache first
+        if let cachedIcon = iconCache[window.pid],
+           let timestamp = iconCacheTimestamp,
+           Date().timeIntervalSince(timestamp) < iconCacheLifetime {
+            return cachedIcon
         }
         
-        CATransaction.commit()
+        // If cache is expired or missing, get fresh icon
+        var appIcon: NSImage?
+        
+        if let app = NSRunningApplication(processIdentifier: pid_t(window.pid)) {
+            // Try multiple methods to get the icon
+            if let icon = app.icon {
+                // Direct icon from running app (most reliable)
+                appIcon = icon
+            } else if let bundleID = app.bundleIdentifier,
+                      let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                // Try getting icon from app bundle
+                appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+            } else if let appURL = app.bundleURL {
+                // Try getting icon from app's actual location
+                appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+            } else if let appPath = app.executableURL?.deletingLastPathComponent().path {
+                // Last resort: try executable's parent directory
+                appIcon = NSWorkspace.shared.icon(forFile: appPath)
+            }
+            
+            // Special cases for known apps
+            if appIcon == nil {
+                if window.appName.lowercased().contains("calendar") {
+                    if let calendarApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iCal") {
+                        appIcon = NSWorkspace.shared.icon(forFile: calendarApp.path)
+                    }
+                }
+                // Add more special cases here if needed
+            }
+        }
+        
+        // Update cache if we got an icon
+        if let icon = appIcon {
+            iconCache[window.pid] = icon
+            iconCacheTimestamp = Date()
+        }
+        
+        return appIcon
     }
 }
 
