@@ -692,6 +692,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let allWorkspaces = workspaceOutput.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+            .sorted { a, b in
+                // Handle special case for workspace "0" to come after "9"
+                if a == "0" && b != "0" { return false }  // "0" goes after non-"0"
+                if a != "0" && b == "0" { return true }   // non-"0" goes before "0"
+                return a < b  // Normal string comparison for other cases
+            }
             
         // Only return workspaces that have windows in them
         return allWorkspaces.filter { workspace in
