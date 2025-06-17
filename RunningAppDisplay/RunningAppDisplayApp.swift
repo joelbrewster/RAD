@@ -211,6 +211,19 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             lastActiveWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         
+        // Add workspace change check timer (more frequent than the window check)
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            if let currentWorkspace = self.runAerospaceCommand(args: ["list-workspaces", "--focused"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               currentWorkspace != self.lastActiveWorkspace {
+                print("Workspace changed to: \(currentWorkspace)")
+                self.lastActiveWorkspace = currentWorkspace
+                self.debouncedUpdateRunningApps(source: .spaceChange)
+            }
+        }
+        
         // Add periodic update timer
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkForWindowChanges()
@@ -276,12 +289,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Cancel any pending timer
         updateWorkDebounceTimer?.invalidate()
         
-        // If we're just updating indicators, do it immediately
-        if source == .spaceChange {
-            if let focusedWorkspace = runAerospaceCommand(args: ["list-workspaces", "--focused"])?
-                .trimmingCharacters(in: .whitespacesAndNewlines) {
-                updateWorkspaceIndicators(focusedWorkspace: focusedWorkspace)
-            }
+        // Always update indicators immediately
+        if let focusedWorkspace = runAerospaceCommand(args: ["list-workspaces", "--focused"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines) {
+            updateWorkspaceIndicators(focusedWorkspace: focusedWorkspace)
         }
         
         // Schedule data update with shorter interval
@@ -348,7 +359,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         runningAppsWindow.backgroundColor = .clear
 
         // Calculate dimensions
-        let iconSize = NSSize(width: currentIconSize, height: currentIconSize)
+        let xiconSize = NSSize(width: currentIconSize, height: currentIconSize)
         let spacing: CGFloat = 4  // Spacing between icons
         let workspaceNumberWidth: CGFloat = 8  // Width for workspace number
         
@@ -435,7 +446,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         for group in workspaceGroups {
             let workspaceContainer = NSStackView(frame: .zero)
             workspaceContainer.orientation = .horizontal
-            workspaceContainer.spacing = currentIconSize * 0.0625  // [4] Space between workspace number and icon group (2px at 32px)
+            workspaceContainer.spacing = group.windows.isEmpty ? 0 : (currentIconSize * 0.0625)  // Only add spacing if there are windows
             workspaceContainer.distribution = .fill
             workspaceContainer.alignment = .centerY
             
@@ -466,10 +477,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             // Keep the workspaceContainer exactly as it was, just constrain it to fill the visual wrapper
             workspaceContainer.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
+                // Add 6pt padding at the top of the workspace container
                 workspaceContainer.topAnchor.constraint(equalTo: visualContainer.topAnchor, constant: 6),
+                // Add 6pt padding at the bottom of the workspace container
                 workspaceContainer.bottomAnchor.constraint(equalTo: visualContainer.bottomAnchor, constant: -6),
-                workspaceContainer.leadingAnchor.constraint(equalTo: visualContainer.leadingAnchor, constant: 6),
-                workspaceContainer.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor, constant: -6)
+                // Leading edge: 16pt padding for empty workspaces, 6pt when containing windows
+                workspaceContainer.leadingAnchor.constraint(equalTo: visualContainer.leadingAnchor, constant: group.windows.isEmpty ? 16 : 6),
+                // Trailing edge: No padding for empty workspaces, -12pt (inset) when containing windows
+                // This negative inset creates space for the window icons to breathe
+                workspaceContainer.trailingAnchor.constraint(equalTo: visualContainer.trailingAnchor, constant: group.windows.isEmpty ? 0 : -12)
             ])
             
             // Add workspace label with updated style for active state
@@ -482,10 +498,24 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             label.font = NSFont.monospacedSystemFont(ofSize: currentIconSize * 0.4375, weight: isActive ? .bold : .medium) // Scales font with icon size (14pt at 32px)
             label.alignment = .center
             label.translatesAutoresizingMaskIntoConstraints = false
+            
+            // Create a container for the label to control its size
+            let labelContainer = NSView(frame: .zero)
+            labelContainer.translatesAutoresizingMaskIntoConstraints = false
+            labelContainer.addSubview(label)
+            
+            // Add the container to the workspace container first
+            workspaceContainer.addArrangedSubview(labelContainer)
+            
+            // Now set up constraints after the container is in the view hierarchy
             NSLayoutConstraint.activate([
-                label.widthAnchor.constraint(equalToConstant: 20)
+                label.centerXAnchor.constraint(equalTo: labelContainer.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: labelContainer.centerYAnchor),
+                labelContainer.widthAnchor.constraint(equalToConstant: 16), // Same width for all workspaces
+                labelContainer.heightAnchor.constraint(equalTo: workspaceContainer.heightAnchor)
             ])
-            workspaceContainer.addArrangedSubview(label)
+            
+            workspaceContainer.addArrangedSubview(labelContainer)
             
             // Create stack view for this group's icons with proper constraints
             let groupStack = NSStackView(frame: .zero)
@@ -493,7 +523,25 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             groupStack.spacing = 4  // [5] Space between individual icons in a group
             groupStack.distribution = .fillEqually
             groupStack.alignment = .centerY
+            
+            // Ensure minimum size even when empty
+            groupStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            groupStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            
+            // Add minimum width and height constraints for empty workspaces
+            if group.windows.isEmpty {
+                NSLayoutConstraint.activate([
+                    groupStack.widthAnchor.constraint(greaterThanOrEqualToConstant: currentIconSize * 0.5),
+                    groupStack.heightAnchor.constraint(equalToConstant: currentIconSize)
+                ])
+            }
+            
             workspaceContainer.addArrangedSubview(groupStack)
+            
+            // Ensure consistent height for the workspace container
+            NSLayoutConstraint.activate([
+                workspaceContainer.heightAnchor.constraint(equalToConstant: currentIconSize + 12) // 6px padding top and bottom
+            ])
             
             // Add apps for this group
             for window in group.windows {
@@ -746,18 +794,15 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         
         let workspaces = getSortedWorkspaces()
         
-        // Create workspace groups
-        let groups = workspaces.compactMap { workspace in
+        // Create workspace groups for all workspaces, even empty ones
+        let groups = workspaces.map { workspace in
             let windows = getWindowsForWorkspace(workspace)
-            if !windows.isEmpty {
-                let windowInfos = windows.map { window in
-                    let info = WindowInfo(line: window)
-                    print("Created WindowInfo - ID: \(info.windowId), App: \(info.title), Title: \(info.appName)")
-                    return info
-                }
-                return WorkspaceGroup(workspace: workspace, windows: windowInfos)
+            let windowInfos = windows.map { window in
+                let info = WindowInfo(line: window)
+                print("Created WindowInfo - ID: \(info.windowId), App: \(info.title), Title: \(info.appName)")
+                return info
             }
-            return nil
+            return WorkspaceGroup(workspace: workspace, windows: windowInfos)
         }
         
         // Cache the result
