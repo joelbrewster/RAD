@@ -341,12 +341,19 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func updateRunningApps(with groups: [WorkspaceGroup]? = nil) {
+        print("\n=== Layout Update ===")
+        print("Current Dock Position: \(currentDockPosition)")
+        print("Current Dock Size: \(currentDockSize) (Icon Size: \(currentIconSize))")
+        print("Padding - Horizontal: \(horizontalPadding), Vertical: \(verticalPadding), Group Spacing: \(groupSpacing)")
+        
         let workspaceGroups = groups ?? lastWorkspaceData ?? getWorkspaceGroups()
+        print("Number of Workspace Groups: \(workspaceGroups.count)")
         
         // Get the focused workspace first
         var focusedWorkspace: String? = nil
         if let workspaceOutput = runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
             focusedWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("Focused Workspace: \(focusedWorkspace ?? "None")")
         }
 
         // Set critical window properties first
@@ -616,6 +623,10 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let totalWidth = stackSize.width + (horizontalPadding * 2)
         let totalHeight = stackSize.height + (verticalPadding * 2)
         
+        print("\n=== Applying Layout ===")
+        print("Stack Natural Size - Width: \(stackSize.width), Height: \(stackSize.height)")
+        print("Total Size (with padding) - Width: \(totalWidth), Height: \(totalHeight)")
+        
         // Update window size first
         let currentFrame = runningAppsWindow.frame
         runningAppsWindow.setFrame(NSRect(x: currentFrame.minX, 
@@ -635,14 +646,17 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 mainScreen.visibleFrame.maxX - totalWidth + shadowPadding
             }
             
-            print("Positioning dock \(currentDockPosition) at x: \(xPosition)")
-            print("Stack natural size - width: \(stackSize.width), height: \(stackSize.height)")
+            print("\n=== Window Position ===")
+            print("Dock Position: \(currentDockPosition)")
+            print("X Position: \(xPosition)")
+            print("Screen Visible Frame - X: \(mainScreen.visibleFrame.minX), Y: \(mainScreen.visibleFrame.minY)")
+            print("Screen Size - Width: \(mainScreen.visibleFrame.width), Height: \(mainScreen.visibleFrame.height)")
             
             let yPosition = mainScreen.visibleFrame.minY
             let newFrame = NSRect(x: xPosition, y: yPosition, width: totalWidth, height: totalHeight)
             
-            print("Setting window frame - x: \(xPosition), y: \(yPosition), width: \(totalWidth), height: \(totalHeight)")
-            print("Screen visible frame - x: \(mainScreen.visibleFrame.minX), y: \(mainScreen.visibleFrame.minY), width: \(mainScreen.visibleFrame.width), height: \(mainScreen.visibleFrame.height)")
+            print("Final Window Frame - X: \(xPosition), Y: \(yPosition), Width: \(totalWidth), Height: \(totalHeight)")
+            print("===================\n")
             
             runningAppsWindow.setFrame(newFrame, display: true)
         }
