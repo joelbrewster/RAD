@@ -211,8 +211,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             lastActiveWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         
-        // Add workspace change check timer (more frequent)
-        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        // Add workspace change check timer (much more frequent for instant response)
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             if let workspaceOutput = self.runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
                 let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -220,7 +220,14 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     // Hide tooltips immediately when workspace changes
                     DockTooltipWindow.getSharedWindow().alphaValue = 0.0
                     self.lastActiveWorkspace = workspace
-                    self.debouncedUpdateRunningApps(source: .spaceChange)
+                    
+                    // Update indicators immediately without debouncing
+                    self.updateWorkspaceIndicators(focusedWorkspace: workspace)
+                    
+                    // Then update the full layout with minimal delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        self.debouncedUpdateRunningApps(source: .spaceChange)
+                    }
                 }
             }
         }
