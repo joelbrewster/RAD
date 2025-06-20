@@ -211,20 +211,21 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             lastActiveWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         
-        // Add workspace change check timer (more frequent than the window check)
+        // Add workspace change check timer (more frequent)
         Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            
-            if let currentWorkspace = self.runAerospaceCommand(args: ["list-workspaces", "--focused"])?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               currentWorkspace != self.lastActiveWorkspace {
-                print("Workspace changed to: \(currentWorkspace)")
-                self.lastActiveWorkspace = currentWorkspace
-                self.debouncedUpdateRunningApps(source: .spaceChange)
+            if let workspaceOutput = self.runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
+                let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                if workspace != self.lastActiveWorkspace {
+                    // Hide tooltips immediately when workspace changes
+                    DockTooltipWindow.getSharedWindow().alphaValue = 0.0
+                    self.lastActiveWorkspace = workspace
+                    self.debouncedUpdateRunningApps(source: .spaceChange)
+                }
             }
         }
         
-        // Add periodic update timer
+        // Add window check timer (less frequent)
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkForWindowChanges()
         }
@@ -277,33 +278,12 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     fileprivate func debouncedUpdateRunningApps(source: UpdateSource = .none) {
-        // If an update is in progress, only schedule follow-up if new source has higher priority
-        if isUpdating {
-            if source.priority > pendingUpdateSource.priority {
-                pendingUpdateSource = source
-                needsFollowUpUpdate = true
-            }
-            return
-        }
-        
         // Cancel any pending timer
         updateWorkDebounceTimer?.invalidate()
         
-        // Always update indicators immediately
-        if let focusedWorkspace = runAerospaceCommand(args: ["list-workspaces", "--focused"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
-            updateWorkspaceIndicators(focusedWorkspace: focusedWorkspace)
-        }
-        
-        // Schedule data update with shorter interval
+        // Use a very short debounce time for better responsiveness
         updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            
-            self.isUpdating = true
-            self.updateSource = source
-            
-            // Prepare data update in background
-            self.prepareWorkspaceUpdate()
+            self?.updateRunningApps()
         }
     }
     
@@ -864,14 +844,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     }
     
     func switchToWorkspace(_ workspace: String) {
-        // Hide tooltip immediately without animation
-        ClickableImageView.hideTooltip()
-        
-        // Update UI immediately with the target workspace
-        updateWorkspaceIndicators(focusedWorkspace: workspace)
-        
-        // Invalidate cache before switching
-        invalidateWindowCache()
+        // Hide tooltip IMMEDIATELY before anything else
+        DockTooltipWindow.getSharedWindow().alphaValue = 0.0
         
         // Switch workspace in background
         updateQueue.async {
@@ -883,7 +857,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 try task.run()
                 task.waitUntilExit()
                 
-                // Pre-fetch data for the new workspace
+                // Update UI after switch
                 DispatchQueue.main.async {
                     self.debouncedUpdateRunningApps(source: .spaceChange)
                 }
