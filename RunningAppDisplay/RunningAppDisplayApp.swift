@@ -211,29 +211,50 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             lastActiveWorkspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         
-        // Add workspace change check timer (much more frequent for instant response)
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        // Add workspace change check timer (less frequent to reduce spam)
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             if let workspaceOutput = self.runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
                 let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                if workspace != self.lastActiveWorkspace {
-                    // Hide tooltips immediately when workspace changes
+                
+                // Also check which window is currently focused - handle errors gracefully
+                let focusedWindow = self.runAerospaceCommand(args: ["list-windows", "--focused"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                let workspaceChanged = workspace != self.lastActiveWorkspace
+                let windowChanged = focusedWindow != self.lastActiveWindowId
+                
+                if workspaceChanged || windowChanged {
+                    // Hide tooltips immediately when workspace or window changes
                     DockTooltipWindow.getSharedWindow().alphaValue = 0.0
                     self.lastActiveWorkspace = workspace
+                    self.lastActiveWindowId = focusedWindow
                     
-                    // Update indicators immediately without debouncing
-                    self.updateWorkspaceIndicators(focusedWorkspace: workspace)
+                    // Update indicators immediately - no delay
+                    self.updateWorkspaceIndicatorsOnly(workspace: workspace)
                     
-                    // Then update the full layout with minimal delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        self.debouncedUpdateRunningApps(source: .spaceChange)
+                    if workspaceChanged {
+                        // Workspace changed - check if it has windows only if we haven't checked recently
+                        let hasWindows = (self.runAerospaceCommand(args: ["list-windows", "--workspace", workspace])?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                        
+                        if hasWindows {
+                            // Workspace has content - do full update quickly
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                self.debouncedUpdateRunningApps(source: .spaceChange)
+                            }
+                        } else {
+                            // Empty workspace - longer delay for full update
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                self.debouncedUpdateRunningApps(source: .spaceChange)
+                            }
+                        }
                     }
+                    // Remove window-only updates to reduce spam
                 }
             }
         }
         
-        // Add window check timer (less frequent)
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        // Add window check timer (less frequent to reduce spam)
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkForWindowChanges()
         }
         
@@ -288,8 +309,8 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Cancel any pending timer
         updateWorkDebounceTimer?.invalidate()
         
-        // Use a very short debounce time for better responsiveness
-        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+        // Use longer debounce time to prevent rapid-fire updates
+        updateWorkDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
             self?.updateRunningApps()
         }
     }
@@ -696,8 +717,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 
+                // Suppress version mismatch warnings and "No window is focused" errors
                 if let errorOutput = String(data: errorData, encoding: .utf8), !errorOutput.isEmpty {
-                    print("Error: \(errorOutput)")
+                    if !errorOutput.contains("versions don't match") && !errorOutput.contains("No window is focused") {
+                        print("Error: \(errorOutput)")
+                    }
                 }
                 
                 if let output = String(data: data, encoding: .utf8) {
@@ -889,39 +913,62 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Only update if we have a main stack view
         guard let mainStackView = self.mainStackView else { return }
         
-        DispatchQueue.main.async {
-            // Cache appearance check
-            let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        // Cache appearance check
+        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        
+        // Prepare colors and fonts
+        let activeOpacity: CGFloat = isDarkMode ? 0.4 : 0.8
+        let inactiveOpacity: CGFloat = isDarkMode ? 0.1 : 0.4
+        let activeColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: activeOpacity).cgColor
+        let inactiveColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: inactiveOpacity).cgColor
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)  // Disable implicit animations
+        
+        // Direct layer manipulation
+        mainStackView.arrangedSubviews.forEach { view in
+            guard let container = view.subviews.first?.subviews.first as? NSStackView,
+                  let label = container.arrangedSubviews.first as? NSTextField else { return }
             
-            // Prepare colors and fonts
-            let activeOpacity: CGFloat = isDarkMode ? 0.4 : 0.8
-            let inactiveOpacity: CGFloat = isDarkMode ? 0.1 : 0.4
-            let activeColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: activeOpacity).cgColor
-            let inactiveColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: inactiveOpacity).cgColor
+            let isActive = label.stringValue == workspace
+            view.layer?.backgroundColor = isActive ? activeColor : inactiveColor
             
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)  // Disable implicit animations
+            // Update label without animation
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            label.textColor = isActive ? .labelColor : .tertiaryLabelColor
+            label.font = NSFont.monospacedSystemFont(
+                ofSize: self.currentIconSize * 0.4375,
+                weight: isActive ? .bold : .medium
+            )
+            NSAnimationContext.endGrouping()
+        }
+        
+        CATransaction.commit()
+    }
+    
+    // Fast indicator-only update for empty space switches
+    private func updateWorkspaceIndicatorsOnly(workspace: String) {
+        guard let mainStackView = self.mainStackView else { return }
+        
+        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let activeOpacity: CGFloat = isDarkMode ? 0.4 : 0.8
+        let inactiveOpacity: CGFloat = isDarkMode ? 0.1 : 0.4
+        let activeColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: activeOpacity).cgColor
+        let inactiveColor = NSColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: inactiveOpacity).cgColor
+        
+        // Update indicators immediately without any delays
+        mainStackView.arrangedSubviews.forEach { view in
+            guard let container = view.subviews.first?.subviews.first as? NSStackView,
+                  let label = container.arrangedSubviews.first as? NSTextField else { return }
             
-            // Direct layer manipulation
-            mainStackView.arrangedSubviews.forEach { view in
-                guard let container = view.subviews.first?.subviews.first as? NSStackView,
-                      let label = container.arrangedSubviews.first as? NSTextField else { return }
-                
-                let isActive = label.stringValue == workspace
-                view.layer?.backgroundColor = isActive ? activeColor : inactiveColor
-                
-                // Update label without animation
-                NSAnimationContext.beginGrouping()
-                NSAnimationContext.current.duration = 0
-                label.textColor = isActive ? .labelColor : .tertiaryLabelColor
-                label.font = NSFont.monospacedSystemFont(
-                    ofSize: self.currentIconSize * 0.4375,
-                    weight: isActive ? .bold : .medium
-                )
-                NSAnimationContext.endGrouping()
-            }
-            
-            CATransaction.commit()
+            let isActive = label.stringValue == workspace
+            view.layer?.backgroundColor = isActive ? activeColor : inactiveColor
+            label.textColor = isActive ? .labelColor : .tertiaryLabelColor
+            label.font = NSFont.monospacedSystemFont(
+                ofSize: self.currentIconSize * 0.4375,
+                weight: isActive ? .bold : .medium
+            )
         }
     }
     
@@ -1019,12 +1066,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private var lastWindowState: String = ""
     
     private func checkForWindowChanges() {
-        // Get current window state
+        // Get current window state with more detail
         var currentState = ""
         for workspace in getSortedWorkspaces() {
             if let windows = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
-                currentState += "\(workspace):\(windows)\n"
+                // Include the workspace and window details for more granular change detection
+                currentState += "\(workspace):\(windows.hash)\n"
             }
+        }
+        
+        // Also include the currently focused window to catch focus changes
+        if let focusedWindow = runAerospaceCommand(args: ["list-windows", "--focused"]) {
+            currentState += "focused:\(focusedWindow.hash)\n"
         }
         
         // If state changed, update the UI
