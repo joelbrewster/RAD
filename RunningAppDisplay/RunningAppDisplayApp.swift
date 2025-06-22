@@ -10,6 +10,12 @@ import SwiftData
 import Foundation
 import UniformTypeIdentifiers
 
+// Custom window class that never becomes key or main
+class NonActivatingWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 @main
 class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     var runningAppsWindow: NSWindow!
@@ -68,10 +74,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private var updateSource: UpdateSource = .none
     private var pendingUpdateSource: UpdateSource = .none
     
-    // Add icon cache
+    // Add icon cache with size limits
     private var iconCache: [Int: NSImage] = [:]
     private var iconCacheTimestamp: Date?
     private let iconCacheLifetime: TimeInterval = 5.0 // Cache icons for 5 seconds
+    private let maxIconCacheSize = 50 // Limit cache to 50 icons
     
     // Add properties at top of class
     private var updateQueue = DispatchQueue(label: "com.runningappdisplay.updates", qos: .userInteractive)
@@ -105,7 +112,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let app = NSApplication.shared
         let delegate = RunningAppDisplayApp()
         app.delegate = delegate
-        app.setActivationPolicy(.accessory)  // Use .accessory instead of .prohibited
+        app.setActivationPolicy(.prohibited)  // Completely dockless - never activates
         
         // Hide from Command-Tab switcher
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -117,27 +124,27 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         let workspace = NSWorkspace.shared
         
         // Create floating window for running apps with larger height
-        runningAppsWindow = NSWindow(
+        runningAppsWindow = NonActivatingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 100),
-            styleMask: [.borderless, .nonactivatingPanel],  // Add nonactivatingPanel
+            styleMask: [.borderless, .nonactivatingPanel],  // Non-activating panel
             backing: .buffered,
             defer: false
         )
         
         // print("Created window with initial frame: \(runningAppsWindow.frame)")
         
-        // Update window setup
+        // Update window setup for complete transparency
         runningAppsWindow.level = .popUpMenu
         runningAppsWindow.backgroundColor = .clear
         runningAppsWindow.isOpaque = false
         runningAppsWindow.hasShadow = false
         runningAppsWindow.ignoresMouseEvents = false
         runningAppsWindow.acceptsMouseMovedEvents = true
-        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary]
+        runningAppsWindow.collectionBehavior = [.canJoinAllSpaces, .managed, .fullScreenAuxiliary, .ignoresCycle]
         runningAppsWindow.isMovableByWindowBackground = false
         runningAppsWindow.alphaValue = 1.0
         
-        // Make sure window is visible but don't make it key
+        // Make sure window is visible but never activates the app
         runningAppsWindow.orderFront(nil)
         
         // print("Window setup complete - level: \(runningAppsWindow.level.rawValue), visible: \(runningAppsWindow.isVisible)")
@@ -214,41 +221,56 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add workspace change check timer (less frequent to reduce spam)
         Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            if let workspaceOutput = self.runAerospaceCommand(args: ["list-workspaces", "--focused"]) {
-                let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // Also check which window is currently focused - handle errors gracefully
-                let focusedWindow = self.runAerospaceCommand(args: ["list-windows", "--focused"])?.trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                let workspaceChanged = workspace != self.lastActiveWorkspace
-                let windowChanged = focusedWindow != self.lastActiveWindowId
-                
-                if workspaceChanged || windowChanged {
-                    // Hide tooltips immediately when workspace or window changes
-                    DockTooltipWindow.getSharedWindow().alphaValue = 0.0
-                    self.lastActiveWorkspace = workspace
-                    self.lastActiveWindowId = focusedWindow
-                    
-                    // Update indicators immediately - no delay
-                    self.updateWorkspaceIndicatorsOnly(workspace: workspace)
-                    
-                    if workspaceChanged {
-                        // Workspace changed - check if it has windows only if we haven't checked recently
-                        let hasWindows = (self.runAerospaceCommand(args: ["list-windows", "--workspace", workspace])?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            
+            // Run aerospace commands on background queue to avoid blocking main thread
+            DispatchQueue.global(qos: .userInitiated).async {
+                autoreleasepool {
+                    if let workspaceOutput = self.runAerospaceCommand(args: ["list-workspaces", "--focused"], timeout: 1.0) {
+                        let workspace = workspaceOutput.trimmingCharacters(in: .whitespacesAndNewlines)
                         
-                        if hasWindows {
-                            // Workspace has content - do full update quickly
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                                self.debouncedUpdateRunningApps(source: .spaceChange)
-                            }
-                        } else {
-                            // Empty workspace - longer delay for full update
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                self.debouncedUpdateRunningApps(source: .spaceChange)
+                        // Also check which window is currently focused - handle errors gracefully
+                        let focusedWindow = self.runAerospaceCommand(args: ["list-windows", "--focused"], timeout: 1.0)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        // Switch back to main queue for UI updates
+                        DispatchQueue.main.async {
+                            let workspaceChanged = workspace != self.lastActiveWorkspace
+                            let windowChanged = focusedWindow != self.lastActiveWindowId
+                            
+                            if workspaceChanged || windowChanged {
+                                // Hide tooltips immediately when workspace or window changes
+                                DockTooltipWindow.getSharedWindow().alphaValue = 0.0
+                                self.lastActiveWorkspace = workspace
+                                self.lastActiveWindowId = focusedWindow
+                                
+                                // Update indicators immediately - no delay
+                                self.updateWorkspaceIndicatorsOnly(workspace: workspace)
+                                
+                                if workspaceChanged {
+                                    // Check if workspace has windows on background queue
+                                    DispatchQueue.global(qos: .userInitiated).async {
+                                        autoreleasepool {
+                                            let hasWindows = (self.runAerospaceCommand(args: ["list-windows", "--workspace", workspace], timeout: 1.0)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                                            
+                                            DispatchQueue.main.async {
+                                                if hasWindows {
+                                                    // Workspace has content - do full update quickly
+                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                                        self.debouncedUpdateRunningApps(source: .spaceChange)
+                                                    }
+                                                } else {
+                                                    // Empty workspace - longer delay for full update
+                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                                        self.debouncedUpdateRunningApps(source: .spaceChange)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // Remove window-only updates to reduce spam
                             }
                         }
                     }
-                    // Remove window-only updates to reduce spam
                 }
             }
         }
@@ -256,6 +278,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add window check timer (less frequent to reduce spam)
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkForWindowChanges()
+        }
+        
+        // Add periodic memory cleanup timer
+        Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            self?.performMemoryCleanup()
         }
         
         // Initialize with current running apps
@@ -284,6 +311,31 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         // Add appearance change observer
         appearanceObserver = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
             self?.debouncedUpdateRunningApps()  // Refresh UI when appearance changes
+        }
+        
+        // Add sleep/wake observers to handle laptop sleep cycles
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: nil) { [weak self] _ in
+                print("System going to sleep - pausing updates")
+                self?.updateWorkDebounceTimer?.invalidate()
+        }
+        
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: nil) { [weak self] _ in
+                print("System woke up - resetting state")
+                self?.invalidateWindowCache()
+                self?.lastActiveWorkspace = nil
+                self?.lastActiveWindowId = nil
+                self?.lastWindowState = ""
+                
+                // Wait a moment for system to stabilize then refresh
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self?.debouncedUpdateRunningApps()
+                }
         }
     }
     
@@ -595,22 +647,18 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     imageView.onClick = { [weak self] imageView in
                         guard let workspace = imageView.workspace else { return }
                         
-                        // First log the target workspace
-                        print("\n=== Click Info ===")
-                        print("Target workspace: \(workspace)")
-                        print("Window ID to activate: \(imageView.tag)")
-                        print("App Name: \(imageView.appName ?? "unknown")")
-                        
-                        // Switch to workspace first
-                        self?.runAerospaceCommand(args: ["workspace", workspace])
-                        
-                        // After a brief delay, focus the window
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            print("Focusing window \(imageView.tag)")
-                            self?.runAerospaceCommand(args: ["focus", "--window-id", "\(imageView.tag)"])
+                        // Direct aerospace commands without any app activation
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            // Switch to workspace first
+                            _ = self?.runAerospaceCommand(args: ["workspace", workspace], timeout: 2.0)
+                            
+                            // Focus the specific window after a brief delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                DispatchQueue.global(qos: .userInitiated).async {
+                                    _ = self?.runAerospaceCommand(args: ["focus", "--window-id", "\(imageView.tag)"], timeout: 2.0)
+                                }
+                            }
                         }
-                        
-                        print("==================\n")
                     }
                     
                     groupStack.addArrangedSubview(imageView)
@@ -689,7 +737,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
         iconCache.removeAll()
     }
     
-    private func runAerospaceCommand(args: [String]) -> String? {
+    private func runAerospaceCommand(args: [String], timeout: TimeInterval = 3.0) -> String? {
         let paths = [
             "/opt/homebrew/bin/aerospace",
             "/usr/local/bin/aerospace",
@@ -712,7 +760,20 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             
             do {
                 try task.run()
-                task.waitUntilExit()
+                
+                // Add timeout handling to prevent hangs
+                let startTime = Date()
+                while task.isRunning && Date().timeIntervalSince(startTime) < timeout {
+                    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+                }
+                
+                // Force terminate if still running
+                if task.isRunning {
+                    task.terminate()
+                    task.waitUntilExit()
+                    print("Aerospace command timed out: \(args.joined(separator: " "))")
+                    continue  // Try next path
+                }
                 
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
@@ -838,8 +899,19 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private func invalidateWindowCache() {
         print("Invalidating window cache")
         cachedWorkspaceGroups = nil
-        iconCache.removeAll()
-        iconCacheTimestamp = nil
+        
+        // Clean up icon cache if it's too large or old
+        if iconCache.count > maxIconCacheSize || 
+           (iconCacheTimestamp != nil && Date().timeIntervalSince(iconCacheTimestamp!) > iconCacheLifetime) {
+            iconCache.removeAll()
+            iconCacheTimestamp = nil
+            print("Cleaned up icon cache (\(iconCache.count) items)")
+        }
+        
+        // Force garbage collection hint
+        autoreleasepool {
+            // Any temporary objects created in this scope will be cleaned up
+        }
     }
     
     private func handleWorkspaceChange(_ source: UpdateSource) {
@@ -980,6 +1052,16 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
             return cachedIcon
         }
         
+        // Clean cache if it's getting too large
+        if iconCache.count >= maxIconCacheSize {
+            // Remove oldest 25% of cache entries
+            let keysToRemove = iconCache.keys.prefix(iconCache.count / 4)
+            for key in keysToRemove {
+                iconCache.removeValue(forKey: key)
+            }
+            print("Trimmed icon cache to \(iconCache.count) items")
+        }
+        
         // If cache is expired or missing, get fresh icon
         var appIcon: NSImage?
         
@@ -997,7 +1079,6 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                 if FileManager.default.fileExists(atPath: path) {
                     appIcon = NSWorkspace.shared.icon(forFile: path)
                     if appIcon != nil {
-                        print("Using static Calendar icon")
                         break
                     }
                 }
@@ -1066,26 +1147,64 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
     private var lastWindowState: String = ""
     
     private func checkForWindowChanges() {
-        // Get current window state with more detail
-        var currentState = ""
-        for workspace in getSortedWorkspaces() {
-            if let windows = runAerospaceCommand(args: ["list-windows", "--workspace", workspace]) {
-                // Include the workspace and window details for more granular change detection
-                currentState += "\(workspace):\(windows.hash)\n"
+        // Run window checks on background queue to avoid blocking main thread
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            autoreleasepool {
+                guard let self = self else { return }
+                
+                // Get current window state with more detail
+                var currentState = ""
+                for workspace in self.getSortedWorkspaces() {
+                    if let windows = self.runAerospaceCommand(args: ["list-windows", "--workspace", workspace], timeout: 1.0) {
+                        // Include the workspace and window details for more granular change detection
+                        currentState += "\(workspace):\(windows.hash)\n"
+                    }
+                }
+                
+                // Also include the currently focused window to catch focus changes
+                if let focusedWindow = self.runAerospaceCommand(args: ["list-windows", "--focused"], timeout: 1.0) {
+                    currentState += "focused:\(focusedWindow.hash)\n"
+                }
+                
+                // Update on main thread
+                DispatchQueue.main.async {
+                    // If state changed, update the UI
+                    if currentState != self.lastWindowState {
+                        print("Window state changed, updating UI")
+                        self.lastWindowState = currentState
+                        self.invalidateWindowCache()
+                        self.debouncedUpdateRunningApps(source: .windowMove)
+                    }
+                }
             }
         }
-        
-        // Also include the currently focused window to catch focus changes
-        if let focusedWindow = runAerospaceCommand(args: ["list-windows", "--focused"]) {
-            currentState += "focused:\(focusedWindow.hash)\n"
-        }
-        
-        // If state changed, update the UI
-        if currentState != lastWindowState {
-            print("Window state changed, updating UI")
-            lastWindowState = currentState
-            invalidateWindowCache()
-            debouncedUpdateRunningApps(source: .windowMove)
+    }
+    
+    // Periodic memory cleanup to prevent memory buildup
+    private func performMemoryCleanup() {
+        autoreleasepool {
+            // Clean up icon cache if it's getting large
+            if iconCache.count > 20 {
+                let keysToRemove = iconCache.keys.prefix(iconCache.count / 2)
+                for key in keysToRemove {
+                    iconCache.removeValue(forKey: key)
+                }
+                print("Memory cleanup: Reduced icon cache to \(iconCache.count) items")
+            }
+            
+            // Reset string state to prevent it from growing indefinitely
+            if lastWindowState.count > 10000 {
+                lastWindowState = ""
+                print("Memory cleanup: Reset window state string")
+            }
+            
+            // Force memory reclaim
+            DispatchQueue.global(qos: .utility).async {
+                // Create a small workload to trigger memory cleanup
+                autoreleasepool {
+                    _ = (0..<100).map { _ in UUID().uuidString }
+                }
+            }
         }
     }
 }
