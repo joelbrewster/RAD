@@ -3,7 +3,6 @@ import Cocoa
 class DockTooltipView: NSView {
     private let label: NSTextField
     private let backgroundView: NSVisualEffectView
-    private let arrowHeight: CGFloat = 8
     private let cornerRadius: CGFloat = 6
     private let padding: CGFloat = 8
     
@@ -22,10 +21,10 @@ class DockTooltipView: NSView {
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
         
-        // Calculate frame based on text
+        // Calculate frame based on text (no arrow needed)
         let labelSize = label.sizeThatFits(NSSize(width: 300, height: CGFloat.greatestFiniteMagnitude))
         let width = labelSize.width + (padding * 2)
-        let height = labelSize.height + (padding * 2) + arrowHeight
+        let height = labelSize.height + (padding * 2)
         
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         
@@ -41,7 +40,7 @@ class DockTooltipView: NSView {
         backgroundView.frame = bounds
         label.frame = NSRect(
             x: padding,
-            y: padding + arrowHeight,
+            y: padding,
             width: width - (padding * 2),
             height: labelSize.height
         )
@@ -54,17 +53,17 @@ class DockTooltipView: NSView {
     func updateText(_ text: String) {
         label.stringValue = text
         
-        // Recalculate size
+        // Recalculate size (no arrow)
         let labelSize = label.sizeThatFits(NSSize(width: 300, height: CGFloat.greatestFiniteMagnitude))
         let width = labelSize.width + (padding * 2)
-        let height = labelSize.height + (padding * 2) + arrowHeight
+        let height = labelSize.height + (padding * 2)
         
         // Update frames
         frame = NSRect(x: frame.minX, y: frame.minY, width: width, height: height)
         backgroundView.frame = bounds
         label.frame = NSRect(
             x: padding,
-            y: padding + arrowHeight,
+            y: padding,
             width: width - (padding * 2),
             height: labelSize.height
         )
@@ -76,59 +75,8 @@ class DockTooltipView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         
-        // Create path for rounded rectangle with arrow
-        let path = NSBezierPath()
-        
-        // Start at bottom center (arrow tip)
-        path.move(to: NSPoint(x: bounds.midX, y: 0))
-        
-        // Draw arrow and rounded rectangle in one continuous path
-        path.line(to: NSPoint(x: bounds.midX - arrowHeight, y: arrowHeight))
-        
-        // Draw left side
-        path.line(to: NSPoint(x: cornerRadius, y: arrowHeight))
-        path.appendArc(withCenter: NSPoint(x: cornerRadius, y: arrowHeight + cornerRadius),
-                      radius: cornerRadius,
-                      startAngle: 270,
-                      endAngle: 180,
-                      clockwise: true)
-        
-        // Draw left edge
-        path.line(to: NSPoint(x: 0, y: bounds.height - cornerRadius))
-        
-        // Draw top left corner
-        path.appendArc(withCenter: NSPoint(x: cornerRadius, y: bounds.height - cornerRadius),
-                      radius: cornerRadius,
-                      startAngle: 180,
-                      endAngle: 90,
-                      clockwise: true)
-        
-        // Draw top edge
-        path.line(to: NSPoint(x: bounds.width - cornerRadius, y: bounds.height))
-        
-        // Draw top right corner
-        path.appendArc(withCenter: NSPoint(x: bounds.width - cornerRadius, y: bounds.height - cornerRadius),
-                      radius: cornerRadius,
-                      startAngle: 90,
-                      endAngle: 0,
-                      clockwise: true)
-        
-        // Draw right edge
-        path.line(to: NSPoint(x: bounds.width, y: arrowHeight + cornerRadius))
-        
-        // Draw bottom right corner
-        path.appendArc(withCenter: NSPoint(x: bounds.width - cornerRadius, y: arrowHeight + cornerRadius),
-                      radius: cornerRadius,
-                      startAngle: 0,
-                      endAngle: 270,
-                      clockwise: true)
-        
-        // Complete the arrow
-        path.line(to: NSPoint(x: bounds.midX + arrowHeight, y: arrowHeight))
-        path.line(to: NSPoint(x: bounds.midX, y: 0))
-        
-        // Close the path
-        path.close()
+        // Create simple rounded rectangle path
+        let path = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
         
         // Set the path as the mask for the background view
         let maskLayer = CAShapeLayer()

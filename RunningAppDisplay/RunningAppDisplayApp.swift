@@ -617,8 +617,11 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
                     imageView.image = icon
                     imageView.imageScaling = .scaleProportionallyUpOrDown
                     imageView.wantsLayer = true
-                    imageView.layer?.cornerRadius = currentIconSize * 0.1875 // Scales corner radius with size (6px at 32px)
+                    imageView.layer?.cornerRadius = currentIconSize * 0.1875
                     imageView.layer?.masksToBounds = true
+                    
+                    // Pass the vertical padding for consistent tooltip positioning
+                    imageView.tooltipOffset = verticalPadding * 2  // Use double the padding for better spacing
                     
                     // Store the window ID
                     imageView.tag = window.windowId
@@ -1213,6 +1216,7 @@ class RunningAppDisplayApp: NSObject, NSApplicationDelegate {
 class ClickableImageView: NSImageView {
     var workspace: String?
     var appName: String?
+    var tooltipOffset: CGFloat = 30  // Default fallback
     private var tooltipWindow: DockTooltipWindow {
         return DockTooltipWindow.getSharedWindow()
     }
@@ -1270,18 +1274,19 @@ class ClickableImageView: NSImageView {
         // Convert our frame to screen coordinates
         let screenFrame = window.convertToScreen(convert(bounds, to: nil))
         
-        // Calculate tooltip position
+        // Calculate tooltip position using the dock padding instead of magic number
         let tooltipSize = tooltipWindow.frame.size
         let tooltipX = screenFrame.midX - (tooltipSize.width / 2)
-        let tooltipY = screenFrame.maxY + 20 // Increased gap to move tooltip up
+        let tooltipY = screenFrame.maxY + tooltipOffset * 1.5
         
         // Ensure tooltip stays within screen bounds
         let finalX = max(screen.visibleFrame.minX + 5,
                         min(tooltipX,
                             screen.visibleFrame.maxX - tooltipSize.width - 5))
         
+        // Make sure tooltip is well within screen bounds at top
         let finalY = min(tooltipY + tooltipSize.height,
-                        screen.visibleFrame.maxY - 5)
+                        screen.visibleFrame.maxY - 20)
         
         tooltipWindow.setFrameTopLeftPoint(NSPoint(x: finalX, y: finalY))
     }
